@@ -11,7 +11,7 @@
 
 import { HAND_SIZE, bit, popcount } from './cards.ts';
 import type { CardSet } from './cards.ts';
-import { COMBOS } from './scoring.ts';
+import { COMBOS, GOLD, SILVER } from './scoring.ts';
 import type { Combo } from './scoring.ts';
 
 export type Action =
@@ -20,6 +20,18 @@ export type Action =
   | { type: 'stop' };
 
 const TWO_24 = 16777216;
+
+/** Weights of the chest objective. gold: value of reaching 400; silver: value of reaching 300. */
+export interface ChestWeights {
+  gold: number;
+  silver: number;
+}
+
+/** Per-point tie-break, small enough never to outweigh a real chance difference. */
+export const TIE = 1e-6;
+
+export const chestUtility = (final: number, w: ChestWeights) =>
+  (final >= GOLD ? w.gold : 0) + (final >= SILVER ? w.silver : 0) + TIE * final;
 const key = (hand: CardSet, unseen: CardSet) => hand * TWO_24 + unseen;
 
 /** Actions available from a (refilled) hand. Discards are pointless once the deck is empty. */
@@ -109,9 +121,55 @@ export class ExactSolver {
     return v;
   }
 
+  private chest = new Map<string, Map<number, number>[]>();
+
+  /**
+   * Expected chest utility of the final score, playing to maximise it:
+   *   U(final) = w.gold * [final >= 400] + w.silver * [final >= 300] + TIE * final
+   * `banked` is the score already made. The tiny points term only breaks ties.
+   */
+  utility(hand: CardSet, unseen: CardSet, banked: number, w: ChestWeights): number {
+    const top = w.gold > 0 ? GOLD : w.silver > 0 ? SILVER : 0;
+    if (banked >= top) return chestUtility(banked, w) + TIE * this.expected(hand, unseen);
+    const wk = `${w.gold}:${w.silver}`;
+    let levels = this.chest.get(wk);
+    if (!levels) this.chest.set(wk, (levels = []));
+    const memo = (levels[banked / 10] ??= new Map());
+    const k = key(hand, unseen);
+    const hit = memo.get(k);
+    if (hit !== undefined) return hit;
+    this.nodes++;
+    let v: number;
+    if (unseen !== 0 && popcount(hand) < HAND_SIZE) {
+      let sum = 0, n = 0;
+      for (let m = unseen; m !== 0; m &= m - 1) {
+        const b = m & -m;
+        sum += this.utility(hand | b, unseen & ~b, banked, w);
+        n++;
+      }
+      v = sum / n;
+    } else {
+      v = chestUtility(banked, w); // stop
+      for (const combo of COMBOS) {
+        if ((combo.mask & hand) !== combo.mask) continue;
+        const x = this.utility(hand & ~combo.mask, unseen, banked + combo.score, w);
+        if (x > v) v = x;
+      }
+      if (unseen !== 0) {
+        for (let m = hand; m !== 0; m &= m - 1) {
+          const x = this.utility(hand & ~(m & -m), unseen, banked, w);
+          if (x > v) v = x;
+        }
+      }
+    }
+    memo.set(k, v);
+    return v;
+  }
+
   clear() {
     this.points.clear();
     this.target = [];
+    this.chest.clear();
     this.nodes = 0;
   }
 }

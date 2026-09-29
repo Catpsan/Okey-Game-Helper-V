@@ -1,18 +1,16 @@
 import type { AnalyzeResponse } from '../worker/advisor.worker.ts';
-import type { Goal } from '../engine/advisor.ts';
 import type { Action } from '../engine/solver.ts';
 import { actionLabel } from '../engine/explain.ts';
 
 interface Props {
   analysis: AnalyzeResponse | null;
   busy: boolean;
-  goal: Goal;
   onApply: (a: Action) => void;
 }
 
 const pct = (x: number) => `${(x * 100).toFixed(x > 0 && x < 0.01 ? 1 : 0)}%`;
 
-export const AdvicePanel = ({ analysis, busy, goal, onApply }: Props) => {
+export const AdvicePanel = ({ analysis, busy, onApply }: Props) => {
   const top = analysis?.ranked[0];
   return (
     <section className="panel advice">
@@ -34,8 +32,9 @@ export const AdvicePanel = ({ analysis, busy, goal, onApply }: Props) => {
               <thead>
                 <tr>
                   <th>Option</th>
+                  <th>Gold</th>
+                  <th>Silver+</th>
                   <th>Avg final</th>
-                  {goal.kind === 'target' && <th>Reach {goal.target}</th>}
                   <th />
                 </tr>
               </thead>
@@ -43,8 +42,9 @@ export const AdvicePanel = ({ analysis, busy, goal, onApply }: Props) => {
                 {analysis.ranked.slice(0, 8).map((r, i) => (
                   <tr key={i} className={i === 0 ? 'best' : ''}>
                     <td>{actionLabel(r)}</td>
+                    <td>{pct(r.gold)}</td>
+                    <td>{pct(r.silver)}</td>
                     <td>{r.expectedScore.toFixed(0)}</td>
-                    {goal.kind === 'target' && <td>{pct(r.reachProbability ?? 0)}</td>}
                     <td>
                       <span className={`badge ${r.exact ? 'exact' : 'est'}`}>{r.exact ? 'exact' : 'estimate'}</span>
                     </td>

@@ -15,17 +15,22 @@ import { ForecastPanel } from './ui/ForecastPanel.tsx';
 import { ScreenReader } from './ui/ScreenReader.tsx';
 import { load, save } from './ui/storage.ts';
 
+// Gold first, silver as the fallback: a gold chance is worth GOLD_FIRST_WEIGHT times a silver
+// chance. Chosen by benchmark (docs/benchmark.md).
+export const GOLD_FIRST_WEIGHT = 10;
+
 const GOALS: Record<string, Goal> = {
+  'gold-first': { kind: 'chest', weights: { gold: GOLD_FIRST_WEIGHT, silver: 1 } },
   points: { kind: 'points' },
-  gold: { kind: 'target', target: 400 },
-  silver: { kind: 'target', target: 300 },
+  gold: { kind: 'chest', weights: { gold: 1, silver: 0 } },
+  silver: { kind: 'chest', weights: { gold: 0, silver: 1 } },
 };
 
 const STORAGE = 'okey-v2-game';
 
 export const App = () => {
   const [history, setHistory] = useState<GameState[]>(() => load(STORAGE, { games: [newGame()] }).games);
-  const [goalKey, setGoalKey] = useState<string>(() => load('okey-v2-goal', { goal: 'points' }).goal);
+  const [goalKey, setGoalKey] = useState<string>(() => load('okey-v2-goal', { goal: 'gold-first' }).goal);
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -33,7 +38,7 @@ export const App = () => {
   const requestId = useRef(0);
 
   const game = history[history.length - 1];
-  const goal = GOALS[goalKey] ?? GOALS.points;
+  const goal = GOALS[goalKey] ?? GOALS['gold-first'];
   const handCards = cardsIn(game.hand);
   const unseen = unseenOf(game);
   const over = isOver(game);
@@ -79,7 +84,7 @@ export const App = () => {
     else if (a.type === 'discard') update(discard(game, a.card));
   };
 
-  const onScreenEvents = (events: TrackerEvent[]) => {
+  const onScreenEvents = (events: TrackerEvent[], _source: 'live' | 'paste') => {
     setHistory(h => {
       let g = h[h.length - 1];
       for (const ev of events) {
@@ -112,9 +117,10 @@ export const App = () => {
           <label>
             Play for{' '}
             <select value={goalKey} onChange={e => setGoalKey(e.target.value)}>
+              <option value="gold-first">Gold first, silver if gold is out of reach</option>
               <option value="points">Highest average score</option>
-              <option value="gold">Best chance of gold (400)</option>
-              <option value="silver">Best chance of silver (300)</option>
+              <option value="gold">Gold only</option>
+              <option value="silver">Silver or better only</option>
             </select>
           </label>
           <button type="button" onClick={() => setHistory(h => (h.length > 1 ? h.slice(0, -1) : h))} disabled={history.length < 2}>
@@ -128,6 +134,7 @@ export const App = () => {
 
       <main>
         <div className="col">
+          <ScreenReader hand={game.hand} gone={game.gone} onEvents={onScreenEvents} />
           <section className="panel">
             <h2>
               Your hand <span className="score">Score {game.score} · {chestFor(game.score)} · {popcount(unseen)} in deck</span>
@@ -148,8 +155,7 @@ export const App = () => {
             </div>
             {over && <p className="headline">Game over: {game.score} points, {chestFor(game.score)} chest.</p>}
           </section>
-          <AdvicePanel analysis={analysis} busy={busy} goal={goal} onApply={apply} />
-          <ScreenReader hand={game.hand} gone={game.gone} onEvents={onScreenEvents} />
+          <AdvicePanel analysis={analysis} busy={busy} onApply={apply} />
         </div>
         <div className="col">
           <DeckTracker

@@ -42,8 +42,13 @@ self.onmessage = (e: MessageEvent<AnalyzeRequest>) => {
   const res: AnalyzeResponse = {
     id,
     ranked,
-    explanation: drawing ? 'Draw cards until your hand is full.' : explain(ranked, hand, unseen),
-    forecast: forecast(hand, unseen, score, advisor.solver),
+    explanation: drawing ? 'Draw cards until your hand is full.' : explain(ranked, hand, unseen, goal),
+    forecast: forecast(hand, unseen, score, advisor.solver, {
+      exactThreshold: 14,
+      samples: 400,
+      seed: 7,
+      weights: goal.kind === 'chest' ? goal.weights : undefined,
+    }),
     outlook: drawOutlook(hand, unseen),
     oneAway: oneAway(hand, unseen),
     millis: performance.now() - t,

@@ -1,12 +1,15 @@
 // Benchmark: play many random games with different decision makers and compare results.
-// Usage: node scripts/bench.ts [games]
-import { FULL_MASK, cardsIn, colorOf, numberOf, popcount } from '../src/engine/cards.ts';
+// Usage: node scripts/bench.ts <games> [player index] [first game]
+// Game g always uses the same deck (seed 12345 + g), so runs can be split across processes
+// and every player faces exactly the same decks.
+import { FULL_MASK, cardsIn, colorOf, numberOf } from '../src/engine/cards.ts';
 import type { CardSet } from '../src/engine/cards.ts';
 import { applyAction } from '../src/engine/solver.ts';
 import type { Action } from '../src/engine/solver.ts';
-import { heuristicAction, refill, seededRng } from '../src/engine/policy.ts';
+import { refill, seededRng } from '../src/engine/policy.ts';
 import type { Rng } from '../src/engine/policy.ts';
 import { Advisor } from '../src/engine/advisor.ts';
+import type { Goal } from '../src/engine/advisor.ts';
 import { bestComboIn } from '../src/engine/scoring.ts';
 import * as v1 from './v1/gameLogic.ts';
 
@@ -25,8 +28,7 @@ const v1Decide: Decide = (hand, unseen) => {
   return s.length ? { type: 'discard', card: fromV1(s[0].cardToRemove.id) } : { type: 'stop' };
 };
 
-const playGame = (decide: Decide, rng: Rng, onNewGame?: () => void): number => {
-  onNewGame?.();
+const playGame = (decide: Decide, rng: Rng): number => {
   let hand = 0, unseen = FULL_MASK, score = 0;
   for (;;) {
     [hand, unseen] = refill(hand, unseen, rng);
@@ -38,24 +40,34 @@ const playGame = (decide: Decide, rng: Rng, onNewGame?: () => void): number => {
   }
 };
 
-const games = Number(process.argv[2] ?? 300);
-const only = process.argv[3];
-const advisor = new Advisor();
-const goldAdvisor = new Advisor();
-const players: [string, Decide, (() => void)?][] = [
-  ['V1 (greedy play + V1 discard)', v1Decide],
-  ['V2 heuristic only', (h, u) => heuristicAction(h, u)],
-  ['V2 heuristic + exact endgame', (h, u, s) => (popcount(h) + popcount(u) <= 14 ? advisor.best(h, u, s) : heuristicAction(h, u)), () => advisor.reset()],
-  ['V2 advisor, max points', (h, u, s) => advisor.best(h, u, s, { rollouts: 200, rolloutExactAt: 8 }), () => advisor.reset()],
-  ['V2 advisor, max gold chance', (h, u, s) => goldAdvisor.best(h, u, s, { rollouts: 200, rolloutExactAt: 8, goal: { kind: 'target', target: 400 } }), () => goldAdvisor.reset()],
+const ROLLOUTS = Number(process.env.ROLLOUTS ?? 200);
+const advisorPlayer = (goal: Goal) => {
+  const advisor = new Advisor();
+  return (h: CardSet, u: CardSet, s: number) => advisor.best(h, u, s, { rollouts: ROLLOUTS, goal });
+};
+const chest = (gold: number, silver: number): Goal => ({ kind: 'chest', weights: { gold, silver } });
+
+export const PLAYERS: [string, () => Decide][] = [
+  ['V1 logic', () => v1Decide],
+  ['V2 highest average score', () => advisorPlayer({ kind: 'points' })],
+  ['V2 gold only', () => advisorPlayer(chest(1, 0))],
+  ['V2 silver only', () => advisorPlayer(chest(0, 1))],
+  ['V2 gold first, silver fallback (3:1)', () => advisorPlayer(chest(3, 1))],
+  ['V2 gold first, silver fallback (10:1)', () => advisorPlayer(chest(10, 1))],
+  ['V2 gold first, silver fallback (100:1)', () => advisorPlayer(chest(100, 1))],
 ];
 
-for (const [name, decide, reset] of players.filter((_, i) => only === undefined || String(i) === only)) {
-  const rng = seededRng(12345); // same decks for every player
+const games = Number(process.argv[2] ?? 300);
+const only = process.argv[3];
+const first = Number(process.argv[4] ?? 0);
+for (const [i, [name, make]] of PLAYERS.entries()) {
+  if (only !== undefined && String(i) !== only) continue;
   const t = performance.now();
-  const scores = Array.from({ length: games }, () => playGame(decide, rng, reset));
-  const avg = scores.reduce((a, b) => a + b, 0) / games;
-  const gold = scores.filter(s => s >= 400).length / games;
-  const silver = scores.filter(s => s >= 300 && s < 400).length / games;
-  console.log(`${name.padEnd(32)} avg ${avg.toFixed(1)}  gold ${(gold * 100).toFixed(1)}%  silver ${(silver * 100).toFixed(1)}%  bronze ${((1 - gold - silver) * 100).toFixed(1)}%  (${((performance.now() - t) / games).toFixed(0)} ms/game)`);
+  const scores: number[] = [];
+  for (let g = first; g < first + games; g++) {
+    const decide = make(); // fresh solver cache per game
+    scores.push(playGame(decide, seededRng(12345 + g)));
+  }
+  // One JSON line per run, so shards can be merged with scripts/bench-report.ts.
+  console.log(JSON.stringify({ player: i, name, first, scores, msPerGame: (performance.now() - t) / games }));
 }

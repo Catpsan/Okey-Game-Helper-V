@@ -25,6 +25,16 @@ describe('exact solver', () => {
     expect(s.expected(hand, unseen)).toBe(100);
   });
 
+  it('gold-first goal takes a gold chance over a safe silver, and silver when gold is gone', () => {
+    const s = new ExactSolver();
+    const w = { gold: 10, silver: 1 };
+    // Banked 290, deck empty, red 1-2-3 flush (50) in hand: silver is certain, gold impossible.
+    expect(s.utility(maskOf([r(1), r(2), r(3)]), 0, 290, w)).toBeCloseTo(1, 3);
+    // Banked 350 with red 6, red 7 in hand; deck holds red 8 and junk: gold (via 100) is certain
+    // if we keep drawing, so the value is gold + silver.
+    expect(s.utility(maskOf([r(6), r(7)]), maskOf([r(8), b(1)]), 350, w)).toBeCloseTo(11, 3);
+  });
+
   it('reach probability is 1 when the target is already met and 0 when impossible', () => {
     const s = new ExactSolver();
     expect(s.reach(maskOf([r(1)]), 0, 0)).toBe(1);
@@ -46,7 +56,7 @@ describe('exact solver', () => {
     // Need 100 more for gold. Only the flush line gets there.
     const hand = maskOf([r(6), r(7), b(8), y(1), y(2)]);
     const unseen = bit(r(8));
-    const ranked = new Advisor().rank(hand, unseen, 300, { goal: { kind: 'target', target: 400 } });
-    expect(ranked[0].reachProbability).toBe(1);
+    const ranked = new Advisor().rank(hand, unseen, 300, { goal: { kind: 'chest', weights: { gold: 1, silver: 0 } } });
+    expect(ranked[0].gold).toBe(1);
   });
 });

@@ -75,3 +75,27 @@ export const diff = (visible: CardSet, hand: CardSet, gone: CardSet): TrackerEve
   }
   return events;
 };
+
+/**
+ * Bring the game in line with a one-off picture (a pasted screenshot), where several things
+ * may have happened since the last update. Cards that left the hand are matched to combos
+ * where possible (plays), the rest count as discards; new cards are draws.
+ */
+export const reconcile = (visible: CardSet, hand: CardSet, gone: CardSet): TrackerEvent[] => {
+  const simple = diff(visible, hand, gone);
+  if (!simple.some(e => e.type === 'unclear')) return simple;
+  const events: TrackerEvent[] = [];
+  let removed = hand & ~visible;
+  for (const combo of COMBOS) {
+    if ((combo.mask & removed) === combo.mask) {
+      events.push({ type: 'play', combo });
+      removed &= ~combo.mask;
+    }
+  }
+  for (const card of cardsIn(removed)) events.push({ type: 'discard', card });
+  for (const card of cardsIn(visible & ~hand)) {
+    if (gone & bit(card)) events.push({ type: 'unclear', reason: 'A card that already left the game appeared again. Check the reading.' });
+    else events.push({ type: 'draw', card });
+  }
+  return events;
+};

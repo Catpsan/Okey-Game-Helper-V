@@ -63,3 +63,59 @@ describe('screen tracker', () => {
     expect(t.observe(seen, bit(r(1)), 0)).toEqual([]);
   });
 });
+
+import { detectCards } from '../src/vision/detect.ts';
+import { reconcile } from '../src/vision/tracker.ts';
+
+// A 400x240 "game window": dark background, a row of 5 cards, a row of 3 field cards
+// above it, and a stray coloured icon that must be ignored.
+const frame = (hand: [keyof typeof RGB, string[]][], field: [keyof typeof RGB, string[]][]): Pixels => {
+  const width = 400, height = 240;
+  const data = new Uint8ClampedArray(width * height * 4);
+  const put = (x: number, y: number, [r, g, b]: readonly number[]) => {
+    const i = (y * width + x) * 4;
+    data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = 255;
+  };
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) put(x, y, [30, 34, 40]);
+  const card = (x0: number, y0: number, color: keyof typeof RGB, pattern: string[]) => {
+    for (let y = 0; y < 60; y++) for (let x = 0; x < 40; x++) {
+      const on = pattern[Math.floor(y / 10)]?.[Math.floor(x / 10)] === '#';
+      put(x0 + x, y0 + y, on ? RGB[color] : [225, 215, 190]);
+    }
+  };
+  hand.forEach(([c, p], i) => card(20 + i * 70, 160, c, p));
+  field.forEach(([c, p], i) => card(90 + i * 70, 40, c, p));
+  for (let y = 5; y < 15; y++) for (let x = 370; x < 395; x++) put(x, y, RGB.blue); // icon
+  return { data, width, height };
+};
+
+describe('automatic card detection', () => {
+  const TWO = ['###.', '...#', '..#.', '.#..', '#...', '####'];
+  const book: GlyphBook = {
+    1: [teachGlyph(slot(ONE, 'red'))!],
+    2: [teachGlyph(slot(TWO, 'red'))!],
+    7: [teachGlyph(slot(SEVEN, 'red'))!],
+  };
+
+  it('finds the hand and field rows without calibration', () => {
+    const px = frame(
+      [['red', ONE], ['blue', SEVEN], ['yellow', TWO], ['red', TWO], ['blue', ONE]],
+      [['yellow', SEVEN], ['yellow', ONE]],
+    );
+    const found = detectCards(px, book);
+    const cards = found.map(f => f.reading.card);
+    expect(found.filter(f => f.row === 0).map(f => f.reading.card)).toEqual([
+      cardOf('red', 1), cardOf('blue', 7), cardOf('yellow', 2), cardOf('red', 2), cardOf('blue', 1),
+    ]);
+    expect(cards).toContain(cardOf('yellow', 7));
+    expect(cards).toContain(cardOf('yellow', 1));
+    expect(found.length).toBe(7);
+  });
+
+  it('reconciles a pasted screenshot taken several moves later', () => {
+    const r = (n: number) => cardOf('red', n);
+    // Hand had red 1-2-3 + red 5 + red 7; now shows red 7, red 8: played 1-2-3, discarded 5, drew 8.
+    const events = reconcile(maskOf([r(7), r(8)]), maskOf([r(1), r(2), r(3), r(5), r(7)]), 0);
+    expect(events.map(e => e.type)).toEqual(['play', 'discard', 'draw']);
+  });
+});
