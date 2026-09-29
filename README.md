@@ -46,16 +46,42 @@ Details in [docs/benchmark.md](docs/benchmark.md).
 
 ## Run it
 
-Requires Node.js 22.18 or newer.
+### Online (no install)
+
+The app is a static site, so it can run on Vercel for free:
+
+1. Go to https://vercel.com/new and pick **Import Git Repository** → `Catpsan/Okey-Game-Helper-V`.
+   (If the repo isn't listed, use "Adjust GitHub App Permissions" to give Vercel access to it.)
+2. Keep the detected settings (framework Vite, build `npm run build`, output `dist`; `vercel.json` sets them too) and press **Deploy**.
+3. Open the `*.vercel.app` link in Chrome or Edge. Every push to `main` redeploys automatically.
+
+### On your Windows PC
+
+1. Install Node.js 22 LTS or newer: download it from https://nodejs.org, or in a terminal run
+   `winget install OpenJS.NodeJS.LTS`. Close and reopen the terminal afterwards.
+2. Get the code: `git clone https://github.com/Catpsan/Okey-Game-Helper-V.git`
+   (or on GitHub: **Code → Download ZIP** and unzip it).
+3. Double-click **`start-windows.bat`** in the folder. The first run installs dependencies; after
+   that it opens the app in your browser at http://localhost:5173.
+
+Manual commands, any OS:
 
 ```bash
 npm install
-npm run dev      # open the printed http://localhost address in Chrome or Edge
+npm run dev      # then open http://localhost:5173
 npm test         # rules, solver and vision tests
 npm run build    # static site in dist/
 ```
 
-Screen sharing needs a Chromium-based browser (Chrome, Edge) or Firefox, on `localhost` or HTTPS.
+Screen sharing needs Chrome, Edge or Firefox, on `localhost` or HTTPS (Vercel is HTTPS).
+
+### Playing with it
+
+1. Open the Okey window in Metin 2 and the helper side by side (or on a second monitor).
+2. Press **Share game window** and pick the Metin 2 window, or snip it with
+   <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> and press <kbd>Ctrl</kbd>+<kbd>V</kbd> in the helper.
+3. Check the cards it read (green boxes). If a number is wrong, teach it under that card once.
+4. Follow **Next play**. Leave the goal on **Gold first, silver if gold is out of reach**, or pick another.
 
 ## Using it
 
