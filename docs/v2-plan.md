@@ -1,5 +1,7 @@
 # Okey Helper V2 plan
 
+> **Status (2026-09-29):** phases 1 to 3 have a first working version in this repository: the engine with exact endgame and rollouts, goal selection, predictions, and browser screen reading with teach mode. Rules were confirmed against the official wikis (see [rules.md](rules.md)). Screen reading still needs to be tested against real game screenshots.
+
 Hard rule for every part of this plan: the helper only **looks** at pixels of the game window that you choose to share. It never sends input, never reads game memory, never touches network packets. Every action in the game is yours.
 
 ## 1. What V1 does today
