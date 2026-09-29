@@ -39,7 +39,7 @@ Same 300 random decks for every player (`npm run bench`):
 | Player | Avg score | Gold | Silver | Bronze |
 |---|---|---|---|---|
 | V1 logic | 267 | 2.0% | 27.0% | 71.0% |
-| V2, highest average score | 324 | 6.0% | 67.3% | 26.7% |
+| V2, highest average score | 321 | 5.7% | 64.7% | 29.7% |
 | V2, best chance of gold | 314 | 7.0% | 57.7% | 35.3% |
 
 Details in [docs/benchmark.md](docs/benchmark.md).
