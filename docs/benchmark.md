@@ -39,6 +39,7 @@ Rows 3 and 4 used 200 rollouts per option in the early game; the app uses 400. R
 | Silver only | 316.4 | 6.5% ± 1.2% | 73.3% ± 2.2% | 26.7% |
 | **Gold first, silver fallback 3:1 (default)** | 317.9 | 9.0% ± 1.4% | **75.3% ± 2.2%** | **24.8%** |
 | Gold first, silver fallback 10:1 | 313.7 | 10.3% ± 1.5% | 68.0% ± 2.3% | 32.0% |
+| Gold first, silver fallback 100:1 | 308.1 | 9.5% ± 1.5% | 64.5% ± 2.4% | 35.5% |
 
 "Gold first, silver fallback" maximises 3 × P(gold) + P(silver or better). At 3:1 it keeps the gold
 rate of "gold only" (within noise) and gets the best silver-or-better rate of all strategies,
