@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { PNG } from 'pngjs';
 import { readFileSync } from 'node:fs';
-import { readOkey } from '../src/vision/okey.ts';
+import { readOkey, findOkeyWindow } from '../src/vision/okey.ts';
+import { readCapture } from '../src/vision/reader.ts';
 import type { Pixels } from '../src/vision/recognize.ts';
 import { cardName } from '../src/engine/cards.ts';
 
@@ -58,5 +59,63 @@ describe('real Okey window', () => {
     const W = shot.width, y0 = 52, y1 = 118;
     const hand: Pixels = { data: shot.data.slice(y0 * W * 4, y1 * W * 4), width: W, height: y1 - y0 };
     expect(read(hand)).toEqual(EXPECTED);
+  });
+});
+
+/** Copy a rectangle of `src` into `dst` at (ox, oy). */
+const paste = (dst: Pixels, src: Pixels, sx: number, sy: number, sw: number, sh: number, ox: number, oy: number): Pixels => {
+  const data = new Uint8ClampedArray(dst.data);
+  for (let y = 0; y < sh; y++) data.set(src.data.subarray(((sy + y) * src.width + sx) * 4, ((sy + y) * src.width + sx + sw) * 4), ((oy + y) * dst.width + ox) * 4);
+  return { ...dst, data };
+};
+
+/** Like capture.regionPixels: crop, then scale down to at most maxW wide. */
+const regionOf = (px: Pixels) => (sx: number, sy: number, sw: number, sh: number, maxW = 1280): Pixels => {
+  const x0 = Math.round(sx), y0 = Math.round(sy), w = Math.round(sw), h = Math.round(sh);
+  const cut = paste({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }, px, x0, y0, w, h, 0, 0);
+  return w > maxW ? resize(cut, maxW / w) : cut;
+};
+
+const capture = (px: Pixels, hint = null as Parameters<typeof readCapture>[5]) => {
+  const r = readCapture(null as unknown as CanvasImageSource, px.width, px.height, {}, regionOf(px), hint);
+  return { ...r, cards: r.slots.map(s => (s.reading.card === null ? '?' : cardName(s.reading.card))) };
+};
+
+// Whole Metin 2 client (sent by Alex) with the Okey window open before the first draw,
+// skill bar, potions and buffs around it. The window sits at (377, 185).
+describe('Okey window inside the whole game screen', () => {
+  const game = load('window-empty-24.png');
+  const shot = load('start-67152.png');
+  const withCards = paste(game, shot, 0, 0, shot.width, shot.height, 377, 185);
+
+  it('finds the window by its title bar and deck', () => {
+    expect(findOkeyWindow(game)).toEqual({ x: 377, y: 185, w: 325, h: 306 });
+    expect(findOkeyWindow(shot)).toEqual({ x: 0, y: 0, w: 325, h: 306 });
+  });
+
+  it('reads no cards before the first draw', () => {
+    const r = capture(game);
+    expect(r.window).not.toBeNull();
+    expect(r.cards).toEqual([]);
+  });
+
+  it('reads only the hand inside the window', () => {
+    expect(capture(withCards).cards).toEqual(EXPECTED);
+  });
+
+  it('ignores card-like shapes outside the window (skill bar, potions)', () => {
+    // Fake cards at the bottom of the screen, where the skill bar is.
+    const noisy = paste(withCards, shot, 20, 52, 290, 66, 330, 690);
+    expect(readOkey(noisy).length).toBeGreaterThan(5); // the old whole-screen search saw both rows
+    expect(capture(noisy).cards).toEqual(EXPECTED);
+  });
+
+  it.each([0.6, 1.5, 2.5])('works when the game is shown at x%s', k => {
+    expect(capture(resize(withCards, k)).cards).toEqual(EXPECTED);
+  });
+
+  it('stays locked on the window it found', () => {
+    const first = capture(withCards);
+    expect(capture(withCards, first.window).cards).toEqual(EXPECTED);
   });
 });

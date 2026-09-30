@@ -9,7 +9,7 @@ import type { Label, Sample } from '../vision/learn.ts';
 import { readPicture, readCapture, visibleSet, isSure } from '../vision/reader.ts';
 import { digitShape } from '../vision/okey.ts';
 import type { DigitBook } from '../vision/okey.ts';
-import type { Slot, SlotSource } from '../vision/reader.ts';
+import type { Slot, SlotSource, Rect } from '../vision/reader.ts';
 import { ScreenTracker, reconcile } from '../vision/tracker.ts';
 import type { TrackerEvent } from '../vision/tracker.ts';
 import { bit, cardName, cardsIn, FULL_MASK } from '../engine/cards.ts';
@@ -53,6 +53,8 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
   const lastPx = useRef<Pixels | null>(null);
   const lastSlots = useRef<Slot[]>([]);
   const pastedImage = useRef<ImageBitmap | null>(null);
+  const okeyWindow = useRef<Rect | null>(null); // where the Okey window is on the shared screen
+  const [windowFound, setWindowFound] = useState(false);
   const memory = useRef(new CardMemory(load<{ samples: Sample[] }>(MEMORY, { samples: [] }).samples));
   const digits = useRef<DigitBook>(load<{ book: DigitBook }>(DIGITS, { book: {} }).book);
   const [settings, setSettings] = useState<Settings>(() => load(SETTINGS, { mode: 'okey', layout: DEFAULT_LAYOUT, auto: false, gap: 0.08 }));
@@ -90,7 +92,9 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
   /** Read a full picture (live frame or pasted image). */
   const readSource = (src: CanvasImageSource, w: number, h: number, kind: 'live' | 'paste'): { px: Pixels; list: Slot[] } => {
     if (state.current.settings.mode === 'okey') {
-      const r = readCapture(src, w, h, digits.current, (sx, sy, sw, sh, maxW) => regionPixels(src, sx, sy, sw, sh, maxW));
+      const r = readCapture(src, w, h, digits.current, (sx, sy, sw, sh, maxW) => regionPixels(src, sx, sy, sw, sh, maxW), kind === 'live' ? okeyWindow.current : null);
+      if (kind === 'live') okeyWindow.current = r.window;
+      setWindowFound(r.window !== null);
       return { px: r.px, list: r.slots };
     }
     const px = toPixels(src, w, h);
@@ -189,6 +193,7 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
         setSource(s => (s === 'live' ? 'none' : s));
       });
       capture.current = c;
+      okeyWindow.current = null;
       tracker.current.reset();
       setLive(true);
       setSource('live');
@@ -270,7 +275,7 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
   const cards = slots.filter(s => !s.reading.empty && s.reading.card !== null && isSure(s)).length;
   const summary =
     source === 'none' ? null
-      : !slots.length ? (settings.mode === 'okey' ? 'Looking for the Okey window…' : source === 'live' ? 'Drag a box around your 5 hand cards' : 'Nothing read')
+      : !slots.length ? (settings.mode === 'okey' ? (windowFound ? 'Okey window found, waiting for cards' : 'Looking for the Okey window…') : source === 'live' ? 'Drag a box around your 5 hand cards' : 'Nothing read')
       : sure === slots.length ? `Reading ${cards} card${cards === 1 ? '' : 's'}`
       : `${slots.length - sure} unclear`;
 

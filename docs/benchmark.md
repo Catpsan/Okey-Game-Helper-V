@@ -44,3 +44,27 @@ Rows 3 and 4 used 200 rollouts per option in the early game; the app uses 400. R
 "Gold first, silver fallback" maximises 3 × P(gold) + P(silver or better). At 3:1 it keeps the gold
 rate of "gold only" (within noise) and gets the best silver-or-better rate of all strategies,
 so it is the default. Pushing harder for gold (10:1) gains little gold and loses 7 points of silver.
+
+## Goals and "Optimized" (2026-09-30, 100 games)
+
+100 games per strategy, same decks (seed 12345 + game 0-99), 200 rollouts per option.
+"Silver ruled out early": games where 300 became provably impossible before the end
+(`src/engine/outlook.ts`), and on average how many cards were left in the deck at that moment.
+At 100 games the gaps between strategies are within noise (± about 3% gold, ± 4.5% silver).
+
+| Strategy | Avg | Gold | Silver or better | Bronze | Silver ruled out early | Cards left then |
+|---|---|---|---|---|---|---|
+| Gold, else silver (3:1) | 320.1 | 11% | 73% | 27% | 27% | 6.1 |
+| Most points | 324.6 | 11% | 72% | 28% | 28% | 6.0 |
+| Gold only | 310.6 | 9% | 63% | 37% | 37% | 6.7 |
+| Silver only | 321.1 | 9% | 75% | 25% | 25% | 5.6 |
+| Optimized, 1st move check, gold under 10% -> silver | 320.4 | 9% | 74% | 26% | 26% | 5.5 |
+| Optimized, under 5% | 321.4 | 9% | 74% | 26% | 26% | 5.8 |
+| Optimized, first 3 moves, under 10% | 320.5 | 9% | 74% | 26% | 26% | 5.5 |
+| Optimized, under 15% | 320.7 | 9% | 75% | 25% | 25% | 5.6 |
+
+Takeaways: "Gold only" is clearly worse. The others are close. Optimized behaves like
+"Silver only" (most first hands have a gold chance under 10%, so it switches to silver), while
+"Gold, else silver" kept 2 more gold games out of 100 for 1-2 fewer silvers. A bronze game is
+usually only provably lost with about 6 cards left, so the "start a new game" alert saves the
+last few moves rather than whole games.

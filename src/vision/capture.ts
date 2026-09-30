@@ -49,8 +49,16 @@ export class Capture {
   }
 }
 
-const work = document.createElement('canvas');
-const workCtx = work.getContext('2d', { willReadFrequently: true })!;
+// Created on first use, so this module can be imported outside the browser (tests).
+let workCanvas: HTMLCanvasElement | null = null;
+let workContext: CanvasRenderingContext2D | null = null;
+const canvas = () => {
+  if (!workCanvas) {
+    workCanvas = document.createElement('canvas');
+    workContext = workCanvas.getContext('2d', { willReadFrequently: true })!;
+  }
+  return { work: workCanvas, workCtx: workContext! };
+};
 
 /** Draw a picture (video, image bitmap, canvas) at analysis size and return its pixels. */
 export const toPixels = (source: CanvasImageSource, width: number, height: number, maxWidth = ANALYSIS_WIDTH): Pixels =>
@@ -59,6 +67,7 @@ export const toPixels = (source: CanvasImageSource, width: number, height: numbe
 /** Pixels of part of a picture (in source coordinates), scaled down to at most maxWidth. */
 export const regionPixels = (source: CanvasImageSource, sx: number, sy: number, sw: number, sh: number, maxWidth = ANALYSIS_WIDTH): Pixels => {
   const scale = Math.min(1, maxWidth / sw);
+  const { work, workCtx } = canvas();
   work.width = Math.max(1, Math.round(sw * scale));
   work.height = Math.max(1, Math.round(sh * scale));
   workCtx.drawImage(source, sx, sy, sw, sh, 0, 0, work.width, work.height);
@@ -67,7 +76,7 @@ export const regionPixels = (source: CanvasImageSource, sx: number, sy: number, 
 };
 
 /** The canvas holding the last picture passed to toPixels/regionPixels (for previews). */
-export const lastPicture = (): HTMLCanvasElement => work;
+export const lastPicture = (): HTMLCanvasElement => canvas().work;
 
 /** Slot boxes (in pixels) for a manual region. */
 export const slotBoxes = (region: Region, count: number, gap: number, width: number, height: number): Box[] => {
