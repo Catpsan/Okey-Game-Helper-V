@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Capture, DEFAULT_LAYOUT, toPixels, slotBoxes } from '../vision/capture.ts';
 import type { Layout, Region } from '../vision/capture.ts';
-import { readSlot, teachGlyph } from '../vision/recognize.ts';
-import type { GlyphBook, Pixels, SlotReading } from '../vision/recognize.ts';
+import { readSlot, teachGlyph, DEFAULT_RECOGNIZER } from '../vision/recognize.ts';
+import type { GlyphBook, Pixels, RecognizerSettings, SlotReading } from '../vision/recognize.ts';
 import { detectCards, candidateBoxes, crop } from '../vision/detect.ts';
 import type { Box } from '../vision/detect.ts';
 import { withDefaults } from '../vision/defaultGlyphs.ts';
@@ -26,9 +26,11 @@ interface VisionConfig {
 interface Seen {
   box: Box;
   reading: SlotReading;
+  settings: RecognizerSettings;
 }
 
 const STORAGE = 'okey-v2-vision';
+const shortName = (card: number) => cardName(card).replace(/^(\w)\w* /,(_, c: string) => c.toUpperCase());
 const MIN_CONFIDENCE = 0.35;
 const PREVIEW_W = 560;
 
@@ -39,14 +41,14 @@ const analyse = (px: Pixels, config: VisionConfig): Seen[] => {
     const found = detectCards(px, book, undefined, MIN_CONFIDENCE);
     if (found.length) return found;
     // Nothing recognised yet (e.g. before teaching): show candidates so they can be taught.
-    return candidateBoxes(px).map(box => ({ box, reading: readSlot(crop(px, box), book) }));
+    return candidateBoxes(px).map(({ box, settings }) => ({ box, settings, reading: readSlot(crop(px, box), book, settings) }));
   }
   const { hand, field, gap } = config.layout;
   const boxes = [
     ...(hand ? slotBoxes(hand, 5, gap, px.width, px.height) : []),
     ...(field ? slotBoxes(field, 3, gap, px.width, px.height) : []),
   ];
-  return boxes.map(box => ({ box, reading: readSlot(crop(px, box), book) }));
+  return boxes.map(box => ({ box, settings: DEFAULT_RECOGNIZER, reading: readSlot(crop(px, box), book) }));
 };
 
 /** The set of visible cards, or null if anything is unreadable or duplicated. */
@@ -96,7 +98,7 @@ export const ScreenReader = ({ hand, gone, onEvents }: Props) => {
       ctx.strokeRect(box.x * k, box.y * k, box.w * k, box.h * k);
       if (reading.card !== null) {
         ctx.fillStyle = ctx.strokeStyle;
-        ctx.fillText(cardName(reading.card), box.x * k, Math.max(10, box.y * k - 3));
+        ctx.fillText(shortName(reading.card), box.x * k, Math.max(10, box.y * k - 3));
       }
     }
   }, []);
@@ -113,16 +115,24 @@ export const ScreenReader = ({ hand, gone, onEvents }: Props) => {
     if (visible === null || cards === 0) {
       setMessage(
         cards === 0
-          ? 'No cards found in that picture. Snip the Okey window with the cards visible, or teach the numbers below.'
-          : 'Some cards could not be read (orange boxes). Teach their numbers below, then press Read again.',
+          ? 'No cards found in that picture. Snip the Okey window with your cards visible.'
+          : 'Some cards could not be read (orange). Use fix to pick their numbers.',
       );
       return;
     }
-    setMessage(`Read ${cards} card${cards === 1 ? '' : 's'} from the screenshot.`);
+    setMessage(null);
     const s = state.current;
     const events = reconcile(visible, s.hand, s.gone);
     if (events.length) s.onEvents(events, 'paste');
   }, [draw]);
+
+  const readPictureRef = useRef(readPicture);
+  readPictureRef.current = readPicture;
+
+  // After teaching a number, read the pasted screenshot again straight away.
+  useEffect(() => {
+    if (source === 'paste' && pasted.current) readPictureRef.current(pasted.current);
+  }, [config.book]);
 
   // Ctrl+V anywhere in the app (e.g. right after Win+Shift+S), or drop an image file.
   useEffect(() => {
@@ -224,7 +234,7 @@ export const ScreenReader = ({ hand, gone, onEvents }: Props) => {
   const teach = (index: number, number: number) => {
     const px = lastPx.current;
     const item = seen[index];
-    const glyph = px && item && teachGlyph(crop(px, item.box));
+    const glyph = px && item && teachGlyph(crop(px, item.box), item.settings);
     if (!glyph) return;
     setConfig(c => ({ ...c, book: { ...c.book, [number]: [...(c.book[number] ?? []), glyph].slice(-5) } }));
   };
@@ -248,49 +258,30 @@ export const ScreenReader = ({ hand, gone, onEvents }: Props) => {
 
   const taught = Object.keys(config.book).length;
   const showCanvas = source !== 'none';
+  const read = seen.filter(x => x.reading.card !== null && x.reading.confidence >= MIN_CONFIDENCE).length;
+  const unsure = seen.filter(x => !x.reading.empty && (x.reading.card === null || x.reading.confidence < MIN_CONFIDENCE)).length;
+  const status = source === 'none' ? null : unsure ? `${read} read · ${unsure} unsure` : `${read} card${read === 1 ? '' : 's'} read`;
 
   return (
     <section className="panel screen">
-      <h2>Screen reading</h2>
-      {source === 'none' && (
-        <div className="start">
-          <button type="button" className="primary big" onClick={start}>Share game window</button>
-          <p>
-            or press <kbd>Win</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd>, snip the Okey window, then <kbd>Ctrl</kbd> + <kbd>V</kbd> here.
-          </p>
-          <p className="hint">
-            Browsers only allow screen sharing after you click, so this one click is needed each time the page opens.
-            The helper only looks at the picture: it cannot click, type or read the game.
-          </p>
-        </div>
-      )}
-      <div className="row">
-        {active && <button type="button" onClick={stop}>Stop sharing</button>}
+      <div className="screen-bar">
+        <span className={`dot ${active ? 'live' : source === 'paste' ? 'paste' : ''}`} />
+        <span className="bar-title">{active ? 'Watching the game' : source === 'paste' ? 'Screenshot' : 'Screen'}</span>
+        {status && <span className="muted">{status}</span>}
+        <span className="grow" />
         {source === 'paste' && pasted.current && (
-          <button type="button" onClick={() => pasted.current && readPicture(pasted.current)}>Read again</button>
+          <button type="button" className="ghost" onClick={() => pasted.current && readPicture(pasted.current)}>Read again</button>
         )}
-        {source === 'paste' && !active && <button type="button" onClick={start}>Share game window instead</button>}
-        <label className="check">
-          <input type="checkbox" checked={config.auto} onChange={e => setConfig(c => ({ ...c, auto: e.target.checked }))} /> Find cards automatically
-        </label>
-        {active && (
-          <label className="check">
-            <input type="checkbox" checked={follow} onChange={e => setFollow(e.target.checked)} /> Follow the game
-          </label>
+        {active ? (
+          <button type="button" className="ghost" onClick={stop}>Stop</button>
+        ) : (
+          <button type="button" className="primary" onClick={start}>Share game window</button>
         )}
       </div>
-      {!config.auto && showCanvas && (
-        <div className="row">
-          <button type="button" className={mode === 'hand' ? 'on' : ''} onClick={() => setMode('hand')}>Mark hand (5 slots)</button>
-          <button type="button" className={mode === 'field' ? 'on' : ''} onClick={() => setMode('field')}>Mark field (3 slots)</button>
-          <label>
-            Slot gap{' '}
-            <input
-              type="range" min={0} max={0.5} step={0.01} value={config.layout.gap}
-              onChange={e => setConfig(c => ({ ...c, layout: { ...c.layout, gap: Number(e.target.value) } }))}
-            />
-          </label>
-        </div>
+      {source === 'none' && (
+        <p className="hint">
+          Or snip the Okey window (<kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>) and press <kbd>Ctrl</kbd>+<kbd>V</kbd> here.
+        </p>
       )}
       {message && <p className="hint strong">{message}</p>}
       {mode !== 'idle' && <p className="hint">Drag a box around the {mode === 'hand' ? 'five hand' : 'three field'} slots.</p>}
@@ -303,29 +294,56 @@ export const ScreenReader = ({ hand, gone, onEvents }: Props) => {
         onMouseUp={finishDrag}
       />
       {seen.length > 0 && showCanvas && (
-        <div className="slots">
-          {seen.map(({ reading: r }, i) => (
-            <div key={i} className={`slot ${r.empty ? 'empty' : r.card === null || r.confidence < MIN_CONFIDENCE ? 'unsure' : 'ok'}`}>
-              <span>Card {i + 1}</span>
-              <b>{r.empty ? 'empty' : r.card !== null ? cardName(r.card) : r.color ? `${r.color} ?` : '?'}</b>
-              {!r.empty && (
-                <select value="" onChange={e => teach(i, Number(e.target.value))} title="Teach the number shown here">
-                  <option value="">teach…</option>
+        <div className="chips">
+          {seen.map(({ reading: r }, i) => {
+            const ok = r.card !== null && r.confidence >= MIN_CONFIDENCE;
+            if (r.empty) return null;
+            return (
+              <label key={i} className={`chip ${ok ? 'ok' : 'unsure'}`} title="Wrong? Pick the number shown on this card to teach it">
+                <b>{r.card !== null ? shortName(r.card) : r.color ? `${r.color[0].toUpperCase()}?` : '?'}</b>
+                <select value="" onChange={e => teach(i, Number(e.target.value))} aria-label={`Teach card ${i + 1}`}>
+                  <option value="">fix</option>
                   {[1, 2, 3, 4, 5, 6, 7, 8].map(n => <option key={n} value={n}>{n}</option>)}
                 </select>
-              )}
-            </div>
-          ))}
+              </label>
+            );
+          })}
         </div>
       )}
-      <div className="row small">
-        <span className="hint">Numbers taught: {taught}/8 (built-in shapes are used until then)</span>
-        <button type="button" onClick={exportConfig}>Export setup</button>
-        <label className="file">
-          Import setup
-          <input type="file" accept="application/json" onChange={e => e.target.files?.[0] && importConfig(e.target.files[0])} />
-        </label>
-      </div>
+      {unsure > 0 && <p className="hint">Orange = not sure. Use <b>fix</b> to pick the number on that card once; it learns the game's font.</p>}
+      <details className="settings">
+        <summary>Reading settings</summary>
+        <div className="row">
+          <label className="check">
+            <input type="checkbox" checked={config.auto} onChange={e => setConfig(c => ({ ...c, auto: e.target.checked }))} /> Find cards automatically
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={follow} onChange={e => setFollow(e.target.checked)} /> Follow the game
+          </label>
+        </div>
+        {!config.auto && (
+          <div className="row">
+            <button type="button" className={mode === 'hand' ? 'on' : ''} onClick={() => setMode('hand')} disabled={!showCanvas}>Mark hand (5)</button>
+            <button type="button" className={mode === 'field' ? 'on' : ''} onClick={() => setMode('field')} disabled={!showCanvas}>Mark field (3)</button>
+            <label>
+              Gap{' '}
+              <input
+                type="range" min={0} max={0.5} step={0.01} value={config.layout.gap}
+                onChange={e => setConfig(c => ({ ...c, layout: { ...c.layout, gap: Number(e.target.value) } }))}
+              />
+            </label>
+          </div>
+        )}
+        <div className="row">
+          <span className="muted">Numbers taught: {taught}/8</span>
+          <button type="button" className="ghost" onClick={() => setConfig(c => ({ ...c, book: {} }))} disabled={taught === 0}>Forget</button>
+          <button type="button" className="ghost" onClick={exportConfig}>Export</button>
+          <label className="file ghost">
+            Import
+            <input type="file" accept="application/json" onChange={e => e.target.files?.[0] && importConfig(e.target.files[0])} />
+          </label>
+        </div>
+      </details>
     </section>
   );
 };

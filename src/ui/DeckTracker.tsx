@@ -11,9 +11,7 @@ interface Props {
 }
 
 export const DeckTracker = ({ game, onDraw, onMarkGone, onRestore }: Props) => (
-  <section className="panel">
-    <h2>All 24 cards</h2>
-    <p className="hint">Click an unseen card when you draw it. Right-click marks it gone. Click a gone card to put it back.</p>
+  <>
     <div className="tracker">
       {COLORS.map(color => (
         <div className="tracker-row" key={color}>
@@ -35,5 +33,6 @@ export const DeckTracker = ({ game, onDraw, onMarkGone, onRestore }: Props) => (
         </div>
       ))}
     </div>
-  </section>
+    <p className="hint">Tap a card when you draw it. Right-click marks it gone; tap a gone card to put it back.</p>
+  </>
 );

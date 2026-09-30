@@ -78,16 +78,27 @@ Screen sharing needs Chrome, Edge or Firefox, on `localhost` or HTTPS (Vercel is
 ### Playing with it
 
 1. Open the Okey window in Metin 2 and the helper side by side (or on a second monitor).
+   Play the game in **windowed mode**: browsers can't capture a fullscreen game.
 2. Press **Share game window** and pick the Metin 2 window, or snip it with
    <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> and press <kbd>Ctrl</kbd>+<kbd>V</kbd> in the helper.
-3. Check the cards it read (green boxes). If a number is wrong, teach it under that card once.
-4. Follow **Next play**. Leave the goal on **Gold first, silver if gold is out of reach**, or pick another.
+3. Under the preview, each card it read is shown as a chip (green = sure, orange = not sure).
+   If one is wrong or orange, pick the right number in its **fix** menu. Do this once per number
+   (1–8, in any colour); the helper then knows the game's font. It is saved in the browser.
+4. Do what the yellow suggestion says, then press **Done** (or let screen reading notice).
+   The goal in the top bar defaults to **gold, else silver**.
 
-## Using it
+Without screen reading: open **Cards** and tap each card as you draw it. Tap a card in your hand to
+discard it, right-click a card in **Cards** to mark it gone, and use **Undo** to revert.
 
-1. Click cards on the **All 24 cards** grid as you draw them (or let screen reading do it).
-2. Read the suggestion under **Next play**, do it in the game, then press **I did it** (or let screen reading notice).
-3. Right-click a card on the grid to mark it gone; click a gone card to put it back; **Undo** reverts the last change.
+### If the cards are not read
+
+- Make sure the whole Okey window is visible and not covered, and the game isn't minimised.
+- Use **fix** on any orange chip; teaching all 8 numbers once makes reading much more reliable.
+- Paste a snip (<kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>, <kbd>Ctrl</kbd>+<kbd>V</kbd>) to check a
+  single picture; after a **fix** it is read again straight away.
+- Still wrong? Under **Reading settings**, untick **Find cards automatically** and drag a box around
+  the 5 hand cards and the 3 field cards yourself.
+- Please send a snip of the Okey window in an issue: real screenshots are used to tune the reader.
 
 ## Project layout
 

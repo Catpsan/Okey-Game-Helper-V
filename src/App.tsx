@@ -10,7 +10,7 @@ import type { TrackerEvent } from './vision/tracker.ts';
 import type { AnalyzeRequest, AnalyzeResponse } from './worker/advisor.worker.ts';
 import { CardView } from './ui/CardView.tsx';
 import { DeckTracker } from './ui/DeckTracker.tsx';
-import { AdvicePanel } from './ui/AdvicePanel.tsx';
+import { AdvicePanel, OptionsTable } from './ui/AdvicePanel.tsx';
 import { ForecastPanel } from './ui/ForecastPanel.tsx';
 import { ScreenReader } from './ui/ScreenReader.tsx';
 import { load, save } from './ui/storage.ts';
@@ -109,71 +109,72 @@ export const App = () => {
   const suggested = analysis?.ranked[0]?.action;
   const suggestedMask = suggested?.type === 'play' ? suggested.combo.mask : suggested?.type === 'discard' ? bit(suggested.card) : 0;
 
+  const chest = chestFor(game.score);
+
   return (
     <div className="app">
       <header>
-        <h1>Okey Helper <span>V2</span></h1>
-        <div className="row">
-          <label>
-            Play for{' '}
-            <select value={goalKey} onChange={e => setGoalKey(e.target.value)}>
-              <option value="gold-first">Gold first, silver if gold is out of reach</option>
-              <option value="points">Highest average score</option>
-              <option value="gold">Gold only</option>
-              <option value="silver">Silver or better only</option>
-            </select>
-          </label>
-          <button type="button" onClick={() => setHistory(h => (h.length > 1 ? h.slice(0, -1) : h))} disabled={history.length < 2}>
-            Undo
-          </button>
-          <button type="button" onClick={() => { setHistory([newGame()]); setNotice(null); }}>New game</button>
-        </div>
+        <h1>Okey Helper</h1>
+        <select className="goal" value={goalKey} onChange={e => setGoalKey(e.target.value)} aria-label="Play for">
+          <option value="gold-first">Goal: gold, else silver</option>
+          <option value="points">Goal: highest score</option>
+          <option value="gold">Goal: gold only</option>
+          <option value="silver">Goal: silver or better</option>
+        </select>
+        <button type="button" className="ghost" onClick={() => setHistory(h => (h.length > 1 ? h.slice(0, -1) : h))} disabled={history.length < 2}>
+          Undo
+        </button>
+        <button type="button" className="ghost" onClick={() => { setHistory([newGame()]); setNotice(null); }}>New game</button>
       </header>
 
       {notice && <p className="notice" onClick={() => setNotice(null)}>{notice}</p>}
 
-      <main>
-        <div className="col">
-          <ScreenReader hand={game.hand} gone={game.gone} onEvents={onScreenEvents} />
-          <section className="panel">
-            <h2>
-              Your hand <span className="score">Score {game.score} · {chestFor(game.score)} · {popcount(unseen)} in deck</span>
-            </h2>
-            <div className="hand">
-              {Array.from({ length: HAND_SIZE }, (_, i) => {
-                const card = handCards[i] ?? null;
-                return (
-                  <CardView
-                    key={i}
-                    card={card}
-                    state={card !== null && suggestedMask & bit(card) ? 'suggested' : 'hand'}
-                    title="Click to discard"
-                    onClick={card !== null ? () => update(discard(game, card)) : undefined}
-                  />
-                );
-              })}
-            </div>
-            {over && <p className="headline">Game over: {game.score} points, {chestFor(game.score)} chest.</p>}
-          </section>
-          <AdvicePanel analysis={analysis} busy={busy} onApply={apply} />
+      <section className="panel hero">
+        <div className="scoreline">
+          <b className="score">{game.score}</b>
+          <span className={`pill ${chest}`}>{chest}</span>
+          <span className="muted">{popcount(unseen)} left in deck</span>
         </div>
-        <div className="col">
-          <DeckTracker
-            game={game}
-            onDraw={onDraw}
-            onMarkGone={c => update(markGone(game, c))}
-            onRestore={c => update(restore(game, c))}
-          />
-          <ForecastPanel analysis={analysis} />
-          <section className="panel">
-            <h2>Log</h2>
-            <ol className="log">
-              {game.log.slice(-12).reverse().map((l, i) => <li key={i}>{l}</li>)}
-            </ol>
-          </section>
+        <div className="hand">
+          {Array.from({ length: HAND_SIZE }, (_, i) => {
+            const card = handCards[i] ?? null;
+            return (
+              <CardView
+                key={i}
+                card={card}
+                state={card !== null && suggestedMask & bit(card) ? 'suggested' : 'hand'}
+                title="Tap to discard"
+                onClick={card !== null ? () => update(discard(game, card)) : undefined}
+              />
+            );
+          })}
         </div>
-      </main>
-      <footer>Read-only helper: it never sends input to the game, reads its memory or touches network traffic.</footer>
+        {over ? <p className="headline">Game over: {game.score} points, {chest} chest.</p> : <AdvicePanel analysis={analysis} busy={busy} onApply={apply} />}
+      </section>
+
+      <ScreenReader hand={game.hand} gone={game.gone} onEvents={onScreenEvents} />
+
+      <details className="panel more">
+        <summary>Cards</summary>
+        <DeckTracker
+          game={game}
+          onDraw={onDraw}
+          onMarkGone={c => update(markGone(game, c))}
+          onRestore={c => update(restore(game, c))}
+        />
+      </details>
+      <details className="panel more">
+        <summary>Odds and other moves</summary>
+        <ForecastPanel analysis={analysis} />
+        <OptionsTable analysis={analysis} />
+      </details>
+      <details className="panel more">
+        <summary>Log</summary>
+        <ol className="log">
+          {game.log.slice(-12).reverse().map((l, i) => <li key={i}>{l}</li>)}
+        </ol>
+      </details>
+      <footer>Read-only: it only looks at the picture you share. It never clicks, types or touches the game.</footer>
     </div>
   );
 };

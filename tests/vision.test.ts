@@ -77,14 +77,15 @@ const frame = (hand: [keyof typeof RGB, string[]][], field: [keyof typeof RGB, s
     data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = 255;
   };
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) put(x, y, [30, 34, 40]);
+  // 50x72 card face with a 40x60 number in the middle.
   const card = (x0: number, y0: number, color: keyof typeof RGB, pattern: string[]) => {
-    for (let y = 0; y < 60; y++) for (let x = 0; x < 40; x++) {
-      const on = pattern[Math.floor(y / 10)]?.[Math.floor(x / 10)] === '#';
+    for (let y = 0; y < 72; y++) for (let x = 0; x < 50; x++) {
+      const on = pattern[Math.floor((y - 6) / 10)]?.[Math.floor((x - 5) / 10)] === '#' && x >= 5 && y >= 6;
       put(x0 + x, y0 + y, on ? RGB[color] : [225, 215, 190]);
     }
   };
   hand.forEach(([c, p], i) => card(20 + i * 70, 160, c, p));
-  field.forEach(([c, p], i) => card(90 + i * 70, 40, c, p));
+  field.forEach(([c, p], i) => card(90 + i * 70, 30, c, p));
   for (let y = 5; y < 15; y++) for (let x = 370; x < 395; x++) put(x, y, RGB.blue); // icon
   return { data, width, height };
 };
@@ -117,5 +118,74 @@ describe('automatic card detection', () => {
     // Hand had red 1-2-3 + red 5 + red 7; now shows red 7, red 8: played 1-2-3, discarded 5, drew 8.
     const events = reconcile(maskOf([r(7), r(8)]), maskOf([r(1), r(2), r(3), r(5), r(7)]), 0);
     expect(events.map(e => e.type)).toEqual(['play', 'discard', 'draw']);
+  });
+});
+
+// Closer to the real game: brown and gold window art, gold score digits, and cards that show a
+// small corner index as well as the big number.
+const gameFrame = (hand: [keyof typeof RGB, string[]][]): Pixels => {
+  const width = 520, height = 300;
+  const data = new Uint8ClampedArray(width * height * 4);
+  const put = (x: number, y: number, [r, g, b]: readonly number[]) => {
+    const i = (y * width + x) * 4;
+    data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = 255;
+  };
+  const glyph = (x0: number, y0: number, cell: number, pattern: string[], rgb: readonly number[]) => {
+    for (let y = 0; y < cell * 6; y++) for (let x = 0; x < cell * 4; x++) {
+      if (pattern[Math.floor(y / cell)]?.[Math.floor(x / cell)] === '#') put(x0 + x, y0 + y, rgb);
+    }
+  };
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const border = x < 8 || y < 8 || x >= width - 8 || y >= height - 8;
+    put(x, y, border ? [200, 160, 60] : (x + y) % 7 === 0 ? [120, 80, 40] : [90, 60, 30]);
+  }
+  hand.forEach(([c, p], i) => {
+    const x0 = 40 + i * 90, y0 = 180;
+    for (let y = 0; y < 86; y++) for (let x = 0; x < 60; x++) put(x0 + x, y0 + y, [236, 228, 208]);
+    glyph(x0 + 4, y0 + 4, 3, p, RGB[c]);
+    glyph(x0 + 16, y0 + 30, 7, p, RGB[c]);
+  });
+  // "Score 212" in gold, which must not be read as cards.
+  const TWO = ['###.', '...#', '..#.', '.#..', '#...', '####'];
+  [TWO, ONE, TWO].forEach((p, i) => glyph(380 + i * 34, 40, 6, p, [220, 175, 40]));
+  return { data, width, height };
+};
+
+describe('detection on game-like art', () => {
+  const TWO = ['###.', '...#', '..#.', '.#..', '#...', '####'];
+  const book: GlyphBook = {
+    1: [teachGlyph(slot(ONE, 'red'))!],
+    2: [teachGlyph(slot(TWO, 'red'))!],
+    7: [teachGlyph(slot(SEVEN, 'red'))!],
+  };
+
+  it('reads the big numbers on the card faces and ignores the frame and score', () => {
+    const px = gameFrame([['red', ONE], ['blue', SEVEN], ['yellow', TWO], ['red', TWO], ['blue', ONE]]);
+    const found = detectCards(px, book);
+    expect(found.map(f => f.reading.card)).toEqual([
+      cardOf('red', 1), cardOf('blue', 7), cardOf('yellow', 2), cardOf('red', 2), cardOf('blue', 1),
+    ]);
+  });
+});
+
+describe('coloured card faces', () => {
+  // Solid coloured card with a light number on it.
+  const solid = (pattern: string[], color: keyof typeof RGB): Pixels => {
+    const width = 40, height = 60;
+    const data = new Uint8ClampedArray(width * height * 4);
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const inCard = x >= 2 && y >= 2 && x < 38 && y < 58;
+      const on = pattern[Math.floor((y - 6) / 8)]?.[Math.floor((x - 6) / 7)] === '#' && x >= 6 && y >= 6;
+      const [r, g, b] = !inCard ? [30, 34, 40] : on ? [245, 240, 230] : RGB[color];
+      data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = 255;
+    }
+    return { data, width, height };
+  };
+
+  it('reads the light number on a coloured card', () => {
+    const book: GlyphBook = { 1: [teachGlyph(slot(ONE, 'red'))!], 7: [teachGlyph(slot(SEVEN, 'red'))!] };
+    expect(readSlot(solid(SEVEN, 'blue'), book).card).toBe(cardOf('blue', 7));
+    expect(readSlot(solid(ONE, 'yellow'), book).card).toBe(cardOf('yellow', 1));
   });
 });

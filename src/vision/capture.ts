@@ -23,8 +23,8 @@ export interface Layout {
 
 export const DEFAULT_LAYOUT: Layout = { hand: null, field: null, gap: 0.08 };
 
-/** Largest width pictures are analysed at; bigger ones are scaled down. */
-export const ANALYSIS_WIDTH = 1280;
+/** Largest width pictures are analysed at; bigger ones are scaled down. Kept high so small cards stay readable. */
+export const ANALYSIS_WIDTH = 1920;
 
 export class Capture {
   readonly video = document.createElement('video');
