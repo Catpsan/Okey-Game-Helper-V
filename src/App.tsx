@@ -120,10 +120,13 @@ export const App = () => {
         </div>
       </header>
 
-      <ScreenReader ref={reader} hand={game.hand} gone={game.gone} onEvents={onScreenEvents} />
+      <div className="layout">
+      <div className="col-screen">
+        <ScreenReader ref={reader} hand={game.hand} gone={game.gone} onEvents={onScreenEvents} />
+        {notice && <p className="notice" onClick={() => setNotice(null)}>{notice}</p>}
+      </div>
 
-      {notice && <p className="notice" onClick={() => setNotice(null)}>{notice}</p>}
-
+      <div className="col-game">
       <section className="table">
         <div className="score">
           <b>{game.score}</b> <span className={`chest ${chestFor(game.score)}`}>{chestFor(game.score)}</span>
@@ -161,17 +164,17 @@ export const App = () => {
           {f && !over && (
             <div className="forecast">
               <div className="odds">
-                <span><b>{pct(f.gold)}</b> gold</span>
-                <span><b>{pct(f.silver)}</b> silver+</span>
+                <span className="o-gold"><b>{pct(f.gold)}</b> gold</span>
+                <span className="o-silver"><b>{pct(f.silver)}</b> silver+</span>
                 <span><b>{Math.round(f.expected)}</b> avg</span>
               </div>
-              <div className="spark" title="Likely final scores (simulated)">
+              <div className="spark" title="Likely final scores: bronze under 300, silver 300+, gold 400+">
                 {f.histogram.slice(2, 11).map((n, i) => {
                   const from = (i + 2) * 50;
-                  const max = Math.max(1, ...f.histogram);
+                  const max = Math.max(1, ...f.histogram.slice(2, 11));
                   return (
-                    <div key={i} className={from >= 400 ? 'gold' : from >= 300 ? 'silver' : ''} title={`${from}-${from + 49}`}>
-                      <i style={{ height: `${Math.max(4, (n / max) * 100)}%` }} />
+                    <div key={i} className={from >= 400 ? 'gold' : from >= 300 ? 'silver' : 'bronze'} title={`${from}-${from + 49}`}>
+                      <i style={{ height: `${Math.max(6, (n / max) * 100)}%` }} />
                     </div>
                   );
                 })}
@@ -229,6 +232,8 @@ export const App = () => {
           </p>
         </details>
       )}
+      </div>
+      </div>
 
       <footer>Only reads the picture of the game. Never clicks, types or reads game memory.</footer>
     </div>

@@ -284,18 +284,17 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
         <button type="button" className="link" onClick={() => setOpen(o => !o)}>{open ? 'Hide setup' : 'Setup'}</button>
       </div>
       {status && <p className="muted small">{status}</p>}
+      {source === 'none' && <div className="placeholder muted small">The game picture shows here once you share the window or paste a snip.</div>}
 
-      <div hidden={!open} className="setup">
+      <div className="view" hidden={source === 'none' && !marking}>
         {marking && <p className="small"><b>Drag a box</b> around the {marking === 'hand' ? '5 hand cards' : '3 field slots'} in the picture.</p>}
         <canvas
           ref={preview}
-          hidden={source === 'none'}
           className={`preview ${marking ? 'drawing' : ''}`}
           onMouseDown={e => marking && setDrag({ ...toFraction(e), x2: toFraction(e).x, y2: toFraction(e).y })}
           onMouseMove={e => drag && setDrag({ ...drag, x2: toFraction(e).x, y2: toFraction(e).y })}
           onMouseUp={finishDrag}
         />
-        {source === 'none' && <p className="muted small">Share the game window or paste a snip to set up reading.</p>}
 
         {slots.length > 0 && (
           <div className="teach">
@@ -315,7 +314,9 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
             ))}
           </div>
         )}
+      </div>
 
+      <div hidden={!open} className="setup">
         <div className="row small">
           <select value={settings.mode} onChange={e => setSettings(s => ({ ...s, mode: e.target.value as Settings['mode'] }))}>
             <option value="okey">Find cards in the Okey window</option>
@@ -339,7 +340,7 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
         </div>
         <p className="muted small">
           {settings.mode === 'okey'
-            ? 'Reads the cards in the Okey window by itself. If a card is read wrong, pick the right one above once and it learns that number.'
+            ? 'Reads the cards in the Okey window by itself. If a card is read wrong, pick the right one under the picture once and it learns that number.'
             : `Learned ${learned}/24 cards. When a card is unclear, pick it above or add it on the card grid: the helper remembers how it looks.`}{' '}
           <button type="button" className="link" onClick={() => { memory.current = new CardMemory(); digits.current = {}; persistMemory(); }}>Forget learned cards</button>
         </p>
