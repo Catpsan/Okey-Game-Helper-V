@@ -31,7 +31,8 @@ interface Settings {
   gap: number; // gap between cards in a snip of just the hand
 }
 
-const SETTINGS = 'okey-v2-screen';
+// Bumped when automatic card finding became the default, so it is switched on for everyone once.
+const SETTINGS = 'okey-v2-screen-2';
 const MEMORY = 'okey-v2-memory';
 const PREVIEW_W = 640;
 
@@ -43,7 +44,7 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
   const lastSlots = useRef<Slot[]>([]);
   const pastedImage = useRef<ImageBitmap | null>(null);
   const memory = useRef(new CardMemory(load<{ samples: Sample[] }>(MEMORY, { samples: [] }).samples));
-  const [settings, setSettings] = useState<Settings>(() => load(SETTINGS, { layout: DEFAULT_LAYOUT, auto: false, gap: 0.08 }));
+  const [settings, setSettings] = useState<Settings>(() => load(SETTINGS, { layout: DEFAULT_LAYOUT, auto: true, gap: 0.08 }));
   const [live, setLive] = useState(false);
   const [source, setSource] = useState<'none' | 'live' | 'paste'>('none');
   const [open, setOpen] = useState(false);
@@ -62,9 +63,9 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
     setLearned(memory.current.known().size);
   };
 
+  /** Where the slots are when automatic finding is off or finds nothing: the snip itself, or the marked box. */
   const slotSource = (kind: 'live' | 'paste'): SlotSource | null => {
     const s = state.current.settings;
-    if (s.auto) return { kind: 'auto' };
     if (kind === 'paste') return { kind: 'whole', count: 5, gap: s.gap };
     return s.layout.hand ? { kind: 'layout', layout: s.layout } : null;
   };
@@ -89,9 +90,16 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
   }, []);
 
   const analyse = (px: Pixels, kind: 'live' | 'paste'): Slot[] | null => {
+    const book = withDefaults({});
+    // Automatic finding reads the whole Okey window (or screen); a tight snip of just the hand
+    // or a marked box is the fallback when it finds no card it is sure of.
+    if (state.current.settings.auto) {
+      const found = readPicture(px, { kind: 'auto' }, memory.current, book);
+      if (found.some(x => !x.reading.empty && isSure(x))) return found;
+    }
     const src = slotSource(kind);
     if (!src) return null;
-    return readPicture(px, src, memory.current, withDefaults({}));
+    return readPicture(px, src, memory.current, book);
   };
 
   // A pasted snip may come several moves later, so it is reconciled rather than diffed.
@@ -184,7 +192,11 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
       lastSlots.current = list;
       setSlots(list);
       drawPreview(c.video, w, h, list, px);
-      if (!list.length) return;
+      if (!list.length) {
+        setStatus('Looking for your cards… If they are not found, press Mark hand and drag a box around your 5 cards.');
+        return;
+      }
+      setStatus(null);
       const s = state.current;
       const events = tracker.current.observe(visibleSet(list), s.hand, s.gone);
       if (events.length) s.onEvents(events);
@@ -305,7 +317,7 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
             />
           </label>
           <label className="inline">
-            <input type="checkbox" checked={settings.auto} onChange={e => setSettings(s => ({ ...s, auto: e.target.checked }))} /> Auto-find cards (beta)
+            <input type="checkbox" checked={settings.auto} onChange={e => setSettings(s => ({ ...s, auto: e.target.checked }))} /> Find cards automatically
           </label>
           {source === 'paste' && pastedImage.current && <button type="button" onClick={() => readPasted(pastedImage.current!)}>Read again</button>}
         </div>

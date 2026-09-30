@@ -28,6 +28,18 @@ const GOALS: Record<string, { label: string; goal: Goal }> = {
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 
+/** Tiny final-score chart: one bar per 50 points, silver bars from 300, gold from 400. */
+const MiniChart = ({ histogram }: { histogram: number[] }) => {
+  const max = Math.max(1, ...histogram);
+  return (
+    <span className="mini-chart" title="Chance of each final score (0 to 550+). Silver from 300, gold from 400." aria-hidden="true">
+      {histogram.map((n, i) => (
+        <i key={i} className={i >= 8 ? 'gold' : i >= 6 ? 'silver' : ''} style={{ height: `${Math.max(8, (n / max) * 100)}%`, opacity: n ? 1 : 0.3 }} />
+      ))}
+    </span>
+  );
+};
+
 export const App = () => {
   const [history, setHistory] = useState<GameState[]>(() => load('okey-v2-game', { games: [newGame()] }).games);
   const [goalKey, setGoalKey] = useState<string>(() => load('okey-v2-goal', { goal: 'gold-first' }).goal);
@@ -160,6 +172,7 @@ export const App = () => {
           ) : null}
           {f && !over && (
             <div className="odds">
+              <MiniChart histogram={f.histogram} />
               <span><b>{pct(f.gold)}</b> gold</span>
               <span><b>{pct(f.silver)}</b> silver+</span>
               <span><b>{Math.round(f.expected)}</b> avg</span>

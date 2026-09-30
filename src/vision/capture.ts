@@ -23,8 +23,8 @@ export interface Layout {
 
 export const DEFAULT_LAYOUT: Layout = { hand: null, field: null, gap: 0.08 };
 
-/** Largest width pictures are analysed at; bigger ones are scaled down. */
-export const ANALYSIS_WIDTH = 1280;
+/** Largest width pictures are analysed at; bigger ones are scaled down. Kept high so small cards stay readable. */
+export const ANALYSIS_WIDTH = 1920;
 
 export class Capture {
   readonly video = document.createElement('video');
@@ -52,12 +52,16 @@ export class Capture {
 const work = document.createElement('canvas');
 const workCtx = work.getContext('2d', { willReadFrequently: true })!;
 
-/** Draw a picture (video, image bitmap, canvas) at analysis size and return its pixels. */
-export const toPixels = (source: CanvasImageSource, width: number, height: number): Pixels => {
-  const scale = Math.min(1, ANALYSIS_WIDTH / width);
-  work.width = Math.max(1, Math.round(width * scale));
-  work.height = Math.max(1, Math.round(height * scale));
-  workCtx.drawImage(source, 0, 0, work.width, work.height);
+/**
+ * Draw a picture (video, image bitmap, canvas) at analysis size and return its pixels.
+ * `rect` (in source pixels) limits it to part of the picture, e.g. the Okey window.
+ */
+export const toPixels = (source: CanvasImageSource, width: number, height: number, rect?: Box): Pixels => {
+  const r = rect ?? { x: 0, y: 0, w: width, h: height };
+  const scale = Math.min(1, ANALYSIS_WIDTH / r.w);
+  work.width = Math.max(1, Math.round(r.w * scale));
+  work.height = Math.max(1, Math.round(r.h * scale));
+  workCtx.drawImage(source, r.x, r.y, r.w, r.h, 0, 0, work.width, work.height);
   const img = workCtx.getImageData(0, 0, work.width, work.height);
   return { data: img.data, width: img.width, height: img.height };
 };

@@ -4,8 +4,21 @@
 
 import { teachGlyph } from './recognize.ts';
 import type { GlyphBook } from './recognize.ts';
+import { GAME_GLYPHS } from './gameGlyphs.ts';
 
-const FONTS = ['bold 72px Arial, sans-serif', 'bold 72px Verdana, sans-serif', 'bold 72px Georgia, serif', 'bold 72px Tahoma, sans-serif'];
+// Large renders for smooth game art, small ones for the game's low-resolution UI font.
+const FONTS = [
+  'bold 72px Arial, sans-serif',
+  'bold 72px Verdana, sans-serif',
+  'bold 72px Georgia, serif',
+  'bold 72px Tahoma, sans-serif',
+  'bold 72px "Times New Roman", serif',
+  'bold 72px "Trebuchet MS", sans-serif',
+  '72px Arial, sans-serif',
+  'bold 16px Tahoma, sans-serif',
+  'bold 13px Tahoma, sans-serif',
+  'bold 12px Arial, sans-serif',
+];
 
 let cached: GlyphBook | null = null;
 
@@ -33,10 +46,10 @@ export const defaultGlyphs = (): GlyphBook => {
   return (cached = book);
 };
 
-/** Taught samples plus the starter ones. */
+/** Taught samples, then glyphs from the real game, then the font ones. */
 export const withDefaults = (taught: GlyphBook): GlyphBook => {
   const base = defaultGlyphs();
   const out: GlyphBook = {};
-  for (let n = 1; n <= 8; n++) out[n] = [...(taught[n] ?? []), ...(base[n] ?? [])];
+  for (let n = 1; n <= 8; n++) out[n] = [...(taught[n] ?? []), ...(GAME_GLYPHS[n] ?? []), ...(base[n] ?? [])];
   return out;
 };

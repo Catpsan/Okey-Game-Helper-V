@@ -36,7 +36,24 @@ Every theme and screen draws the cards differently, so the helper **learns them 
 - Learned cards are kept in your browser. **Forget learned cards** starts over.
 
 Before anything is learned, a built-in colour/digit reader is tried; it works only for simple card art.
-**Auto-find cards (beta)** looks for the cards anywhere in the picture without a box; it is less reliable.
+## Finding the cards automatically
+
+**Find cards automatically** is on by default: share the window or paste a snip of the whole Okey
+window and no box is needed. It is tuned on a real starting screen (`tests/fixtures/okey-start.png`):
+Metin 2 cards are solid red, blue or yellow with a black number, and the field starts with
+face-down cards.
+
+- Candidates are strongly coloured card-sized shapes (or light card faces, for other card art)
+  lined up in a row of up to 5 (hand) or 3 (field). The gold/brown window art, the score and the
+  face-down cards are ignored.
+- On each card only the biggest shape is read: the black number inside a coloured card, or the
+  coloured number on a light card. Corner numbers and symbols are skipped.
+- 1, 2, 5, 6 and 7 are built in from the game's own digits; 3, 4 and 8 use font shapes until the
+  helper learns them from you (pick the card once when it is orange).
+- The test reads the real screen at 70%–200% size and inside a full-screen capture.
+
+If it finds no card it is sure of, a snip is cut into 5 hand slots as above, and live mode uses the
+box you marked (**Mark hand**).
 
 ## Tips
 

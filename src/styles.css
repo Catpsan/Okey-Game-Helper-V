@@ -69,7 +69,11 @@ h1 span { color: var(--accent); }
 .advice p { margin: 0; }
 .headline { font-size: 20px; font-weight: 650; }
 .headline.stale { opacity: 0.5; }
-.odds { display: flex; gap: 18px; font-size: 14px; color: var(--muted); }
+.odds { display: flex; align-items: center; gap: 18px; font-size: 14px; color: var(--muted); }
+.mini-chart { display: flex; align-items: flex-end; gap: 2px; height: 22px; width: 96px; flex: none; }
+.mini-chart i { flex: 1; background: #3a404c; border-radius: 2px 2px 0 0; }
+.mini-chart i.silver { background: #b9c2cf; }
+.mini-chart i.gold { background: #f5c542; }
 .odds b { color: var(--text); font-size: 17px; }
 
 .grid { display: flex; flex-direction: column; gap: 6px; }
