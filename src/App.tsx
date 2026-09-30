@@ -28,15 +28,16 @@ const GOALS: Record<string, { label: string; goal: Goal }> = {
   optimized: { label: 'Optimized', goal: goalFor('gold') },
   'gold-first': { label: 'Gold, else silver', goal: { kind: 'chest', weights: { gold: GOLD_FIRST_WEIGHT, silver: 1 } } },
   points: { label: 'Most points', goal: { kind: 'points' } },
-  gold: { label: 'Gold only', goal: { kind: 'chest', weights: { gold: 1, silver: 0 } } },
-  silver: { label: 'Silver only', goal: { kind: 'chest', weights: { gold: 0, silver: 1 } } },
 };
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 
 export const App = () => {
   const [history, setHistory] = useState<GameState[]>(() => load('okey-v2-game', { games: [newGame()] }).games);
-  const [goalKey, setGoalKey] = useState<string>(() => load('okey-v2-goal', { goal: 'gold-first' }).goal);
+  const [goalKey, setGoalKey] = useState<string>(() => {
+    const saved = load('okey-v2-goal', { goal: 'gold-first' }).goal;
+    return saved in GOALS ? saved : 'gold-first';
+  });
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
