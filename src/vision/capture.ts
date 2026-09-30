@@ -53,14 +53,21 @@ const work = document.createElement('canvas');
 const workCtx = work.getContext('2d', { willReadFrequently: true })!;
 
 /** Draw a picture (video, image bitmap, canvas) at analysis size and return its pixels. */
-export const toPixels = (source: CanvasImageSource, width: number, height: number): Pixels => {
-  const scale = Math.min(1, ANALYSIS_WIDTH / width);
-  work.width = Math.max(1, Math.round(width * scale));
-  work.height = Math.max(1, Math.round(height * scale));
-  workCtx.drawImage(source, 0, 0, work.width, work.height);
+export const toPixels = (source: CanvasImageSource, width: number, height: number, maxWidth = ANALYSIS_WIDTH): Pixels =>
+  regionPixels(source, 0, 0, width, height, maxWidth);
+
+/** Pixels of part of a picture (in source coordinates), scaled down to at most maxWidth. */
+export const regionPixels = (source: CanvasImageSource, sx: number, sy: number, sw: number, sh: number, maxWidth = ANALYSIS_WIDTH): Pixels => {
+  const scale = Math.min(1, maxWidth / sw);
+  work.width = Math.max(1, Math.round(sw * scale));
+  work.height = Math.max(1, Math.round(sh * scale));
+  workCtx.drawImage(source, sx, sy, sw, sh, 0, 0, work.width, work.height);
   const img = workCtx.getImageData(0, 0, work.width, work.height);
   return { data: img.data, width: img.width, height: img.height };
 };
+
+/** The canvas holding the last picture passed to toPixels/regionPixels (for previews). */
+export const lastPicture = (): HTMLCanvasElement => work;
 
 /** Slot boxes (in pixels) for a manual region. */
 export const slotBoxes = (region: Region, count: number, gap: number, width: number, height: number): Box[] => {

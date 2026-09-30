@@ -159,10 +159,23 @@ export const App = () => {
             </>
           ) : null}
           {f && !over && (
-            <div className="odds">
-              <span><b>{pct(f.gold)}</b> gold</span>
-              <span><b>{pct(f.silver)}</b> silver+</span>
-              <span><b>{Math.round(f.expected)}</b> avg</span>
+            <div className="forecast">
+              <div className="odds">
+                <span><b>{pct(f.gold)}</b> gold</span>
+                <span><b>{pct(f.silver)}</b> silver+</span>
+                <span><b>{Math.round(f.expected)}</b> avg</span>
+              </div>
+              <div className="spark" title="Likely final scores (simulated)">
+                {f.histogram.slice(2, 11).map((n, i) => {
+                  const from = (i + 2) * 50;
+                  const max = Math.max(1, ...f.histogram);
+                  return (
+                    <div key={i} className={from >= 400 ? 'gold' : from >= 300 ? 'silver' : ''} title={`${from}-${from + 49}`}>
+                      <i style={{ height: `${Math.max(4, (n / max) * 100)}%` }} />
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>

@@ -1,12 +1,14 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { Capture, DEFAULT_LAYOUT, toPixels } from '../vision/capture.ts';
+import { Capture, DEFAULT_LAYOUT, toPixels, regionPixels, lastPicture } from '../vision/capture.ts';
 import type { Layout, Region } from '../vision/capture.ts';
 import type { Pixels } from '../vision/recognize.ts';
 import { crop } from '../vision/detect.ts';
 import { withDefaults } from '../vision/defaultGlyphs.ts';
 import { CardMemory } from '../vision/learn.ts';
 import type { Label, Sample } from '../vision/learn.ts';
-import { readPicture, visibleSet, isSure } from '../vision/reader.ts';
+import { readPicture, readCapture, visibleSet, isSure } from '../vision/reader.ts';
+import { digitShape } from '../vision/okey.ts';
+import type { DigitBook } from '../vision/okey.ts';
 import type { Slot, SlotSource } from '../vision/reader.ts';
 import { ScreenTracker, reconcile } from '../vision/tracker.ts';
 import type { TrackerEvent } from '../vision/tracker.ts';
@@ -26,6 +28,8 @@ interface Props {
 }
 
 interface Settings {
+  /** okey: find the cards in the Okey window automatically; box: marked box / snip of the hand. */
+  mode: 'okey' | 'box';
   layout: Layout;
   auto: boolean;
   gap: number; // gap between cards in a snip of just the hand
@@ -33,6 +37,7 @@ interface Settings {
 
 const SETTINGS = 'okey-v2-screen';
 const MEMORY = 'okey-v2-memory';
+const DIGITS = 'okey-v2-digits';
 const PREVIEW_W = 640;
 
 export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone, onEvents }, ref) => {
@@ -43,7 +48,8 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
   const lastSlots = useRef<Slot[]>([]);
   const pastedImage = useRef<ImageBitmap | null>(null);
   const memory = useRef(new CardMemory(load<{ samples: Sample[] }>(MEMORY, { samples: [] }).samples));
-  const [settings, setSettings] = useState<Settings>(() => load(SETTINGS, { layout: DEFAULT_LAYOUT, auto: false, gap: 0.08 }));
+  const digits = useRef<DigitBook>(load<{ book: DigitBook }>(DIGITS, { book: {} }).book);
+  const [settings, setSettings] = useState<Settings>(() => load(SETTINGS, { mode: 'okey', layout: DEFAULT_LAYOUT, auto: false, gap: 0.08 }));
   const [live, setLive] = useState(false);
   const [source, setSource] = useState<'none' | 'live' | 'paste'>('none');
   const [open, setOpen] = useState(false);
@@ -59,7 +65,30 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
 
   const persistMemory = () => {
     save(MEMORY, { samples: memory.current.samples });
+    save(DIGITS, { book: digits.current });
     setLearned(memory.current.known().size);
+  };
+
+  /** Remember what a slot looks like as `label`. */
+  const learnSlot = (px: Pixels, slot: Slot, label: Label) => {
+    const face = crop(px, slot.box);
+    if (state.current.settings.mode === 'okey') {
+      const shape = label !== 'empty' ? digitShape(face) : null;
+      if (shape) {
+        const n = String((label as number) % 8 + 1);
+        digits.current = { ...digits.current, [n]: [...(digits.current[n] ?? []), shape.glyph].slice(-4) };
+      }
+    } else memory.current.learn(face, label);
+  };
+
+  /** Read a full picture (live frame or pasted image). */
+  const readSource = (src: CanvasImageSource, w: number, h: number, kind: 'live' | 'paste'): { px: Pixels; list: Slot[] } => {
+    if (state.current.settings.mode === 'okey') {
+      const r = readCapture(src, w, h, digits.current, (sx, sy, sw, sh, maxW) => regionPixels(src, sx, sy, sw, sh, maxW));
+      return { px: r.px, list: r.slots };
+    }
+    const px = toPixels(src, w, h);
+    return { px, list: analyse(px, kind) ?? [] };
   };
 
   const slotSource = (kind: 'live' | 'paste'): SlotSource | null => {
@@ -96,12 +125,11 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
 
   // A pasted snip may come several moves later, so it is reconciled rather than diffed.
   const readPasted = useCallback((bitmap: ImageBitmap) => {
-    const px = toPixels(bitmap, bitmap.width, bitmap.height);
-    const list = analyse(px, 'paste') ?? [];
+    const { px, list } = readSource(bitmap, bitmap.width, bitmap.height, 'paste');
     lastPx.current = px;
     lastSlots.current = list;
     setSlots(list);
-    drawPreview(bitmap, bitmap.width, bitmap.height, list, px);
+    drawPreview(lastPicture(), px.width, px.height, list, px);
     const visible = visibleSet(list);
     if (visible === null) {
       setStatus('Some cards are unclear (orange). Click the right card under each one, or add it on the grid below.');
@@ -157,7 +185,7 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
       tracker.current.reset();
       setLive(true);
       setSource('live');
-      if (!state.current.settings.layout.hand && !state.current.settings.auto) {
+      if (state.current.settings.mode === 'box' && !state.current.settings.layout.hand && !state.current.settings.auto) {
         setOpen(true);
         setMarking('hand');
       }
@@ -178,12 +206,11 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
       const c = capture.current;
       if (!c?.ready) return;
       const { videoWidth: w, videoHeight: h } = c.video;
-      const px = toPixels(c.video, w, h);
+      const { px, list } = readSource(c.video, w, h, 'live');
       lastPx.current = px;
-      const list = analyse(px, 'live') ?? [];
       lastSlots.current = list;
       setSlots(list);
-      drawPreview(c.video, w, h, list, px);
+      drawPreview(lastPicture(), px.width, px.height, list, px);
       if (!list.length) return;
       const s = state.current;
       const events = tracker.current.observe(visibleSet(list), s.hand, s.gone);
@@ -195,7 +222,7 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
   const teach = (index: number, label: Label) => {
     const px = lastPx.current, slot = lastSlots.current[index];
     if (!px || !slot) return;
-    memory.current.learn(crop(px, slot.box), label);
+    learnSlot(px, slot, label);
     persistMemory();
     if (source === 'paste' && pastedImage.current) readPasted(pastedImage.current);
   };
@@ -210,7 +237,7 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
         s => !(s.reading.empty && isSure(s)) && !(s.reading.card !== null && isSure(s) && handBefore & bit(s.reading.card)),
       );
       if (!slot) return;
-      memory.current.learn(crop(px, slot.box), card);
+      learnSlot(px, slot, card);
       // Mark the slot as known so the next card entered goes to the next slot.
       slot.reading = { card, empty: false, color: null, number: null, confidence: 1 };
       setSlots([...lastSlots.current]);
@@ -235,7 +262,7 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
   const cards = slots.filter(s => !s.reading.empty && s.reading.card !== null && isSure(s)).length;
   const summary =
     source === 'none' ? null
-      : !slots.length ? (source === 'live' ? 'Drag a box around your 5 hand cards' : 'Nothing read')
+      : !slots.length ? (settings.mode === 'okey' ? 'Looking for the Okey window…' : source === 'live' ? 'Drag a box around your 5 hand cards' : 'Nothing read')
       : sure === slots.length ? `Reading ${cards} card${cards === 1 ? '' : 's'}`
       : `${slots.length - sure} unclear`;
 
@@ -245,7 +272,7 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
         {source === 'none' ? (
           <>
             <button type="button" className="primary" onClick={startLive}>Share game window</button>
-            <span className="muted">or <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> the 5 hand cards, then <kbd>Ctrl</kbd>+<kbd>V</kbd></span>
+            <span className="muted">or snip the Okey window (<kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>) and <kbd>Ctrl</kbd>+<kbd>V</kbd></span>
           </>
         ) : (
           <>
@@ -290,9 +317,13 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
         )}
 
         <div className="row small">
-          {live && <button type="button" onClick={() => setMarking('hand')}>Mark hand</button>}
-          {live && <button type="button" onClick={() => setMarking('field')}>Mark field</button>}
-          <label className="inline">
+          <select value={settings.mode} onChange={e => setSettings(s => ({ ...s, mode: e.target.value as Settings['mode'] }))}>
+            <option value="okey">Find cards in the Okey window</option>
+            <option value="box">Marked box / snip of the hand</option>
+          </select>
+          {live && settings.mode === 'box' && <button type="button" onClick={() => setMarking('hand')}>Mark hand</button>}
+          {live && settings.mode === 'box' && <button type="button" onClick={() => setMarking('field')}>Mark field</button>}
+          {settings.mode === 'box' && <label className="inline">
             Gap
             <input
               type="range" min={0} max={0.5} step={0.01}
@@ -303,18 +334,14 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
                 if (source === 'paste' && pastedImage.current) readPasted(pastedImage.current);
               }}
             />
-          </label>
-          <label className="inline">
-            <input type="checkbox" checked={settings.auto} onChange={e => setSettings(s => ({ ...s, auto: e.target.checked }))} /> Auto-find cards (beta)
-          </label>
+          </label>}
           {source === 'paste' && pastedImage.current && <button type="button" onClick={() => readPasted(pastedImage.current!)}>Read again</button>}
         </div>
         <p className="muted small">
-          Learned {learned}/24 cards. When a card is unclear, pick it above or add it on the card grid: the helper
-          remembers how it looks. After a game or two it reads your screen on its own.{' '}
-          {learned > 0 && (
-            <button type="button" className="link" onClick={() => { memory.current = new CardMemory(); persistMemory(); }}>Forget learned cards</button>
-          )}
+          {settings.mode === 'okey'
+            ? 'Reads the cards in the Okey window by itself. If a card is read wrong, pick the right one above once and it learns that number.'
+            : `Learned ${learned}/24 cards. When a card is unclear, pick it above or add it on the card grid: the helper remembers how it looks.`}{' '}
+          <button type="button" className="link" onClick={() => { memory.current = new CardMemory(); digits.current = {}; persistMemory(); }}>Forget learned cards</button>
         </p>
       </div>
     </section>

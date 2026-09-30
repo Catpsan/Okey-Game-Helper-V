@@ -10,6 +10,8 @@ import { detectCards, crop } from './detect.ts';
 import type { Box } from './detect.ts';
 import { CardMemory } from './learn.ts';
 import { bit } from '../engine/cards.ts';
+import { readOkey } from './okey.ts';
+import type { DigitBook } from './okey.ts';
 
 export const MIN_CONFIDENCE = 0.45;
 
@@ -21,6 +23,7 @@ export interface Slot {
 }
 
 export type SlotSource =
+  | { kind: 'okey'; digits: DigitBook } // the real Okey window: finds the cards by itself
   | { kind: 'layout'; layout: Layout }
   | { kind: 'whole'; count: number; gap: number } // a snip of just the hand
   | { kind: 'auto' };
@@ -38,6 +41,9 @@ export const readSlotPixels = (px: Pixels, memory: CardMemory, book: GlyphBook):
 
 export const readPicture = (px: Pixels, source: SlotSource, memory: CardMemory, book: GlyphBook): Slot[] => {
   let boxes: Box[];
+  if (source.kind === 'okey') {
+    return readOkey(px, source.digits).map(c => ({ box: c.box, reading: c.reading, via: 'built-in' as const }));
+  }
   if (source.kind === 'auto') {
     boxes = detectCards(px, book, undefined, 0).map(d => d.box);
   } else if (source.kind === 'whole') {
@@ -63,4 +69,35 @@ export const visibleSet = (slots: Slot[]): number | null => {
     visible |= bit(s.reading.card!);
   }
   return visible;
+};
+
+/**
+ * Read a whole screen or window capture with the Okey reader. If the cards come out small (a big
+ * screen scaled down for speed), zoom into the area around them at full resolution and read again.
+ * Returns the pixels that were read (the zoomed area when zoomed) so slots can be cropped for teaching.
+ */
+export const readCapture = (
+  source: CanvasImageSource, width: number, height: number, digits: DigitBook,
+  toPx: (sx: number, sy: number, sw: number, sh: number, maxW?: number) => Pixels,
+): { px: Pixels; slots: Slot[] } => {
+  let px = toPx(0, 0, width, height);
+  let slots = readPicture(px, { kind: 'okey', digits }, new CardMemory(), {});
+  const k = width / px.width;
+  const faceW = slots[0]?.box.w ?? 0;
+  if ((slots.length === 0 && width > px.width) || (faceW > 0 && faceW < 30 && k > 1)) {
+    // Zoom: around the cards if we saw some, else the whole picture at up to 2560 px wide.
+    let sx = 0, sy = 0, sw = width, sh = height;
+    if (slots.length) {
+      const x0 = Math.min(...slots.map(s => s.box.x)), y0 = Math.min(...slots.map(s => s.box.y));
+      const x1 = Math.max(...slots.map(s => s.box.x + s.box.w)), y1 = Math.max(...slots.map(s => s.box.y + s.box.h));
+      const pad = (y1 - y0) * 2;
+      sx = Math.max(0, (x0 - pad) * k); sy = Math.max(0, (y0 - pad) * k);
+      sw = Math.min(width - sx, (x1 - x0 + 2 * pad) * k); sh = Math.min(height - sy, (y1 - y0 + 2 * pad) * k);
+    }
+    const zoomed = toPx(sx, sy, sw, sh, 2560);
+    const again = readPicture(zoomed, { kind: 'okey', digits }, new CardMemory(), {});
+    if (again.length >= slots.length) { px = zoomed; slots = again; }
+    else px = toPx(0, 0, width, height); // keep the last drawn picture in step with the slots
+  }
+  return { px, slots };
 };

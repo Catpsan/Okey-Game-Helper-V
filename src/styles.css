@@ -81,3 +81,9 @@ h1 span { color: var(--accent); }
 .details th { color: var(--muted); font-weight: 500; }
 .details tr.best td { color: var(--accent); }
 footer { color: var(--muted); font-size: 12px; text-align: center; }
+.forecast { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; width: 100%; }
+.spark { display: flex; align-items: flex-end; gap: 2px; height: 28px; width: 110px; flex-shrink: 0; }
+.spark div { flex: 1; height: 100%; display: flex; align-items: flex-end; }
+.spark i { display: block; width: 100%; border-radius: 2px; background: #3a3f4a; }
+.spark .silver i { background: #aeb6c2; }
+.spark .gold i { background: var(--accent); }
