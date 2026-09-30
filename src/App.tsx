@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { cardsIn, bit, popcount, HAND_SIZE, COLORS, NUMBERS, cardOf, cardName } from './engine/cards.ts';
+import { bit, popcount, HAND_SIZE, COLORS, NUMBERS, cardOf, cardName } from './engine/cards.ts';
 import type { Card } from './engine/cards.ts';
 import { newGame, draw, discard, play, markGone, restore, needsDraw, unseenOf, isOver } from './engine/game.ts';
 import type { GameState } from './engine/game.ts';
@@ -13,6 +13,10 @@ import { CardView } from './ui/CardView.tsx';
 import { ScreenReader } from './ui/ScreenReader.tsx';
 import type { ScreenReaderHandle } from './ui/ScreenReader.tsx';
 import { load, save } from './ui/storage.ts';
+import { arrange, emptySlots } from './ui/handOrder.ts';
+import type { Slots } from './ui/handOrder.ts';
+import { ForecastView } from './ui/ForecastView.tsx';
+import { PixelChest } from './ui/PixelChest.tsx';
 
 // Gold first, silver as the fallback: a gold chance counts GOLD_FIRST_WEIGHT times a silver
 // chance. 3:1 kept the gold rate of "gold only" while beating "silver only" on silver
@@ -40,12 +44,16 @@ export const App = () => {
 
   const game = history[history.length - 1];
   const goal = (GOALS[goalKey] ?? GOALS['gold-first']).goal;
-  const handCards = cardsIn(game.hand);
+  const [order, setOrder] = useState<Slots>(() => load('okey-v2-order', { slots: emptySlots() }).slots);
+  const handSlots = arrange(order, game.hand);
   const unseen = unseenOf(game);
   const over = isOver(game) && game.gone !== 0;
 
   useEffect(() => save('okey-v2-game', { games: history.slice(-50) }), [history]);
   useEffect(() => save('okey-v2-goal', { goal: goalKey }), [goalKey]);
+  // Pin each card to its slot once it is in hand, so later draws and discards don't move it.
+  useEffect(() => setOrder(o => arrange(o, game.hand)), [game.hand]);
+  useEffect(() => save('okey-v2-order', { slots: order }), [order]);
 
   useEffect(() => {
     const w = new Worker(new URL('./worker/advisor.worker.ts', import.meta.url), { type: 'module' });
@@ -110,19 +118,19 @@ export const App = () => {
   return (
     <div className="app">
       <header>
-        <h1>Okey <span>Helper</span></h1>
+        <h1><PixelChest tier="gold" size={30} /> Okey <span>Helper</span></h1>
         <div className="controls">
           <select value={goalKey} onChange={e => setGoalKey(e.target.value)} title="What to play for">
             {Object.entries(GOALS).map(([k, g]) => <option key={k} value={k}>{g.label}</option>)}
           </select>
           <button type="button" onClick={() => setHistory(h => (h.length > 1 ? h.slice(0, -1) : h))} disabled={history.length < 2} title="Undo">↶</button>
-          <button type="button" onClick={() => { setHistory([newGame()]); setNotice(null); }}>New game</button>
+          <button type="button" onClick={() => { setHistory([newGame()]); setOrder(emptySlots()); setNotice(null); }}>New game</button>
         </div>
       </header>
 
       <div className="layout">
       <div className="col-screen">
-        <ScreenReader ref={reader} hand={game.hand} gone={game.gone} onEvents={onScreenEvents} />
+        <ScreenReader ref={reader} hand={game.hand} gone={game.gone} onEvents={onScreenEvents} onOrder={o => setOrder(prev => (prev.length === o.length && prev.every((c, i) => c === o[i]) ? prev : o))} />
         {notice && <p className="notice" onClick={() => setNotice(null)}>{notice}</p>}
       </div>
 
@@ -134,7 +142,7 @@ export const App = () => {
         </div>
         <div className="hand">
           {Array.from({ length: HAND_SIZE }, (_, i) => {
-            const card = handCards[i] ?? null;
+            const card = handSlots[i] ?? null;
             return (
               <CardView
                 key={i}
@@ -161,28 +169,10 @@ export const App = () => {
               <button type="button" className="primary" onClick={() => apply(top.action)}>Done</button>
             </>
           ) : null}
-          {f && !over && (
-            <div className="forecast">
-              <div className="odds">
-                <span className="o-gold"><b>{pct(f.gold)}</b> gold</span>
-                <span className="o-silver"><b>{pct(f.silver)}</b> silver+</span>
-                <span><b>{Math.round(f.expected)}</b> avg</span>
-              </div>
-              <div className="spark" title="Likely final scores: bronze under 300, silver 300+, gold 400+">
-                {f.histogram.slice(2, 11).map((n, i) => {
-                  const from = (i + 2) * 50;
-                  const max = Math.max(1, ...f.histogram.slice(2, 11));
-                  return (
-                    <div key={i} className={from >= 400 ? 'gold' : from >= 300 ? 'silver' : 'bronze'} title={`${from}-${from + 49}`}>
-                      <i style={{ height: `${Math.max(6, (n / max) * 100)}%` }} />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </div>
       </section>
+
+      {f && !over && <ForecastView f={f} current={game.score} />}
 
       <section className="grid" aria-label="All 24 cards">
         {COLORS.map(color => (

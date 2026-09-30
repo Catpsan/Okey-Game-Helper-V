@@ -25,6 +25,8 @@ interface Props {
   hand: number;
   gone: number;
   onEvents: (events: TrackerEvent[]) => void;
+  /** Left-to-right order of the hand cards on screen (null = empty or unclear slot). */
+  onOrder?: (cards: (Card | null)[]) => void;
 }
 
 interface Settings {
@@ -35,12 +37,16 @@ interface Settings {
   gap: number; // gap between cards in a snip of just the hand
 }
 
+/** Cards by screen position, left to right. */
+const orderOf = (list: Slot[]): (Card | null)[] =>
+  list.slice(0, 5).map(s => (!s.reading.empty && s.reading.card !== null && isSure(s) ? s.reading.card : null));
+
 const SETTINGS = 'okey-v2-screen';
 const MEMORY = 'okey-v2-memory';
 const DIGITS = 'okey-v2-digits';
 const PREVIEW_W = 640;
 
-export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone, onEvents }, ref) => {
+export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone, onEvents, onOrder }, ref) => {
   const capture = useRef<Capture | null>(null);
   const tracker = useRef(new ScreenTracker(3));
   const preview = useRef<HTMLCanvasElement>(null);
@@ -58,8 +64,8 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
   const [slots, setSlots] = useState<Slot[]>([]);
   const [learned, setLearned] = useState(memory.current.known().size);
   const [status, setStatus] = useState<string | null>(null);
-  const state = useRef({ hand, gone, onEvents, settings });
-  state.current = { hand, gone, onEvents, settings };
+  const state = useRef({ hand, gone, onEvents, onOrder, settings });
+  state.current = { hand, gone, onEvents, onOrder, settings };
 
   useEffect(() => save(SETTINGS, settings), [settings]);
 
@@ -140,6 +146,7 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
     const s = state.current;
     const events = reconcile(visible, s.hand, s.gone);
     if (events.length) s.onEvents(events);
+    s.onOrder?.(orderOf(list));
   }, [drawPreview]);
 
   // Ctrl+V (after Win+Shift+S) or dropping an image anywhere on the page.
@@ -215,6 +222,7 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
       const s = state.current;
       const events = tracker.current.observe(visibleSet(list), s.hand, s.gone);
       if (events.length) s.onEvents(events);
+      if (visibleSet(list) !== null) s.onOrder?.(orderOf(list));
     }, 250);
     return () => clearInterval(timer);
   }, [live, source, drawPreview]);
@@ -284,7 +292,19 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
         <button type="button" className="link" onClick={() => setOpen(o => !o)}>{open ? 'Hide setup' : 'Setup'}</button>
       </div>
       {status && <p className="muted small">{status}</p>}
-      {source === 'none' && <div className="placeholder muted small">The game picture shows here once you share the window or paste a snip.</div>}
+      {source === 'none' && (
+        <div className="placeholder muted small">
+          <div>
+            <b>How to use</b>
+            <ol>
+              <li>Open the Okey game in Metin 2.</li>
+              <li>Share the window, or snip it (<kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>) and press <kbd>Ctrl</kbd>+<kbd>V</kbd> here.</li>
+              <li>Do the move shown on the right, in the game.</li>
+              <li>Snip again after each move (live share follows by itself).</li>
+            </ol>
+          </div>
+        </div>
+      )}
 
       <div className="view" hidden={source === 'none' && !marking}>
         {marking && <p className="small"><b>Drag a box</b> around the {marking === 'hand' ? '5 hand cards' : '3 field slots'} in the picture.</p>}
