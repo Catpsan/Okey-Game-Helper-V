@@ -17,6 +17,7 @@ import { arrange, emptySlots } from './ui/handOrder.ts';
 import type { Slots } from './ui/handOrder.ts';
 import { ForecastView } from './ui/ForecastView.tsx';
 import { PixelChest } from './ui/PixelChest.tsx';
+import { goalFor, nextPlan, OPTIMIZED } from './engine/plan.ts';
 
 // Gold first, silver as the fallback: a gold chance counts GOLD_FIRST_WEIGHT times a silver
 // chance. 3:1 kept the gold rate of "gold only" while beating "silver only" on silver
@@ -24,6 +25,7 @@ import { PixelChest } from './ui/PixelChest.tsx';
 export const GOLD_FIRST_WEIGHT = 3;
 
 const GOALS: Record<string, { label: string; goal: Goal }> = {
+  optimized: { label: 'Optimized', goal: goalFor('gold') },
   'gold-first': { label: 'Gold, else silver', goal: { kind: 'chest', weights: { gold: GOLD_FIRST_WEIGHT, silver: 1 } } },
   points: { label: 'Most points', goal: { kind: 'points' } },
   gold: { label: 'Gold only', goal: { kind: 'chest', weights: { gold: 1, silver: 0 } } },
@@ -41,9 +43,11 @@ export const App = () => {
   const worker = useRef<Worker | null>(null);
   const requestId = useRef(0);
   const reader = useRef<ScreenReaderHandle>(null);
+  const onAnalysis = useRef<(a: AnalyzeResponse) => void>(() => {});
 
   const game = history[history.length - 1];
-  const goal = (GOALS[goalKey] ?? GOALS['gold-first']).goal;
+  const optimized = goalKey === 'optimized';
+  const goal = optimized ? goalFor(game.plan ?? 'gold') : (GOALS[goalKey] ?? GOALS['gold-first']).goal;
   const [order, setOrder] = useState<Slots>(() => load('okey-v2-order', { slots: emptySlots() }).slots);
   const handSlots = arrange(order, game.hand);
   const unseen = unseenOf(game);
@@ -59,6 +63,7 @@ export const App = () => {
     const w = new Worker(new URL('./worker/advisor.worker.ts', import.meta.url), { type: 'module' });
     w.onmessage = (e: MessageEvent<AnalyzeResponse>) => {
       if (e.data.id !== requestId.current) return;
+      onAnalysis.current(e.data);
       setAnalysis(e.data);
       setBusy(false);
     };
@@ -75,7 +80,15 @@ export const App = () => {
     const req: AnalyzeRequest = { id: ++requestId.current, hand: game.hand, gone: game.gone, score: game.score, goal, drawing: needsDraw(game) };
     setBusy(true);
     worker.current.postMessage(req);
-  }, [game.hand, game.gone, game.score, goalKey]);
+  }, [game.hand, game.gone, game.score, goalKey, game.plan]);
+
+  // Optimized: on the first move of a game, check the gold chance and fix this game's plan.
+  onAnalysis.current = a => {
+    const top = a.ranked[0];
+    if (!optimized || game.plan || !top || game.gone !== 0 || popcount(game.hand) < HAND_SIZE) return;
+    const plan = nextPlan('gold', 0, top.gold, OPTIMIZED);
+    setHistory(h => [...h.slice(0, -1), { ...h[h.length - 1], plan }]);
+  };
 
   const push = (next: GameState) => {
     if (next !== game) setHistory(h => [...h, next]);
@@ -138,8 +151,15 @@ export const App = () => {
       <section className="table">
         <div className="score">
           <b>{game.score}</b> <span className={`chest ${chestFor(game.score)}`}>{chestFor(game.score)}</span>
+          {optimized && game.plan && <span className={`plan ${game.plan}`} title="Optimized: decided on the first move from the gold chance">going for {game.plan}</span>}
           <span className="muted">{popcount(unseen)} left in deck</span>
         </div>
+        {analysis?.silverOut && !over && game.score < 300 && (
+          <div className="alert">
+            <span><b>Silver is out of reach.</b> No draw can get this game to 300 any more. Start a new game to save time.</span>
+            <button type="button" onClick={() => { setHistory([newGame()]); setOrder(emptySlots()); setNotice(null); }}>New game</button>
+          </div>
+        )}
         <div className="hand">
           {Array.from({ length: HAND_SIZE }, (_, i) => {
             const card = handSlots[i] ?? null;

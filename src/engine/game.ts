@@ -12,6 +12,8 @@ export interface GameState {
   gone: CardSet;
   score: number;
   log: string[];
+  /** Optimized goal: what this game plays for, decided on the first move. */
+  plan?: 'gold' | 'silver';
 }
 
 export const newGame = (): GameState => ({ hand: 0, gone: 0, score: 0, log: [] });

@@ -12,6 +12,10 @@ import { Advisor } from '../src/engine/advisor.ts';
 import type { Goal } from '../src/engine/advisor.ts';
 import { bestComboIn } from '../src/engine/scoring.ts';
 import * as v1 from './v1/gameLogic.ts';
+import { silverOut } from '../src/engine/outlook.ts';
+import { nextPlan, goalFor, GOLD_FIRST } from '../src/engine/plan.ts';
+import type { Plan, PlanRule } from '../src/engine/plan.ts';
+import { popcount } from '../src/engine/cards.ts';
 
 type Decide = (hand: CardSet, unseen: CardSet, score: number) => Action;
 
@@ -28,10 +32,14 @@ const v1Decide: Decide = (hand, unseen) => {
   return s.length ? { type: 'discard', card: fromV1(s[0].cardToRemove.id) } : { type: 'stop' };
 };
 
+// Deck size at the first moment silver was provably out of reach (-1 = never).
+let deadAt = -1;
 const playGame = (decide: Decide, rng: Rng): number => {
   let hand = 0, unseen = FULL_MASK, score = 0;
+  deadAt = -1;
   for (;;) {
     [hand, unseen] = refill(hand, unseen, rng);
+    if (deadAt < 0 && silverOut(hand, unseen, score)) deadAt = popcount(unseen);
     const a = decide(hand, unseen, score);
     if (a.type === 'stop') return score;
     if (a.type === 'play') score += a.combo.score;
@@ -45,6 +53,20 @@ const advisorPlayer = (goal: Goal) => {
   const advisor = new Advisor();
   return (h: CardSet, u: CardSet, s: number) => advisor.best(h, u, s, { rollouts: ROLLOUTS, goal });
 };
+// Optimized: check the gold chance on the first moves, then commit to gold-first or silver.
+const optimizedPlayer = (rule: PlanRule) => {
+  const advisor = new Advisor();
+  let plan: Plan = 'gold', decision = 0;
+  return (h: CardSet, u: CardSet, s: number) => {
+    if (plan === 'gold' && decision < rule.checks) {
+      const ranked = advisor.rank(h, u, s, { rollouts: ROLLOUTS, goal: GOLD_FIRST });
+      plan = nextPlan(plan, decision++, ranked[0]?.gold ?? 0, rule);
+      if (plan === 'gold') return ranked[0]?.action ?? { type: 'stop' };
+    }
+    decision++;
+    return advisor.best(h, u, s, { rollouts: ROLLOUTS, goal: goalFor(plan) });
+  };
+};
 const chest = (gold: number, silver: number): Goal => ({ kind: 'chest', weights: { gold, silver } });
 
 export const PLAYERS: [string, () => Decide][] = [
@@ -55,6 +77,10 @@ export const PLAYERS: [string, () => Decide][] = [
   ['V2 gold first, silver fallback (3:1)', () => advisorPlayer(chest(3, 1))],
   ['V2 gold first, silver fallback (10:1)', () => advisorPlayer(chest(10, 1))],
   ['V2 gold first, silver fallback (100:1)', () => advisorPlayer(chest(100, 1))],
+  ['V2 optimized: 1st move gold check, under 10% -> silver', () => optimizedPlayer({ threshold: 0.1, checks: 1 })],
+  ['V2 optimized: 1st move gold check, under 5% -> silver', () => optimizedPlayer({ threshold: 0.05, checks: 1 })],
+  ['V2 optimized: first 3 moves gold check, under 10% -> silver', () => optimizedPlayer({ threshold: 0.1, checks: 3 })],
+  ['V2 optimized: 1st move gold check, under 15% -> silver', () => optimizedPlayer({ threshold: 0.15, checks: 1 })],
 ];
 
 const games = Number(process.argv[2] ?? 300);
@@ -63,11 +89,12 @@ const first = Number(process.argv[4] ?? 0);
 for (const [i, [name, make]] of PLAYERS.entries()) {
   if (only !== undefined && String(i) !== only) continue;
   const t = performance.now();
-  const scores: number[] = [];
+  const scores: number[] = [], dead: number[] = [];
   for (let g = first; g < first + games; g++) {
     const decide = make(); // fresh solver cache per game
     scores.push(playGame(decide, seededRng(12345 + g)));
+    dead.push(deadAt);
   }
   // One JSON line per run, so shards can be merged with scripts/bench-report.ts.
-  console.log(JSON.stringify({ player: i, name, first, scores, msPerGame: (performance.now() - t) / games }));
+  console.log(JSON.stringify({ player: i, name, first, scores, dead, msPerGame: (performance.now() - t) / games }));
 }

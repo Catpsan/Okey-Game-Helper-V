@@ -7,6 +7,7 @@ import { forecast } from '../engine/forecast.ts';
 import type { Forecast } from '../engine/forecast.ts';
 import { drawOutlook, oneAway } from '../engine/predict.ts';
 import type { DrawOutlook, Draw } from '../engine/predict.ts';
+import { silverOut, goldOut } from '../engine/outlook.ts';
 
 export interface AnalyzeRequest {
   id: number;
@@ -25,6 +26,9 @@ export interface AnalyzeResponse {
   forecast: Forecast;
   outlook: DrawOutlook[];
   oneAway: Draw[];
+  /** Proven: no draw order can reach 300 (or 400) any more. */
+  silverOut: boolean;
+  goldOut: boolean;
   millis: number;
 }
 
@@ -51,6 +55,8 @@ self.onmessage = (e: MessageEvent<AnalyzeRequest>) => {
     }),
     outlook: drawOutlook(hand, unseen),
     oneAway: oneAway(hand, unseen),
+    silverOut: silverOut(hand, unseen, score, advisor.solver),
+    goldOut: goldOut(hand, unseen, score, advisor.solver),
     millis: performance.now() - t,
   };
   (self as unknown as Worker).postMessage(res);
