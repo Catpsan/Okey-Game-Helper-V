@@ -127,11 +127,11 @@ button.primary:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 #6
 .chest-tile.silver { border-color: #464c57; } .chest-tile.silver b { color: var(--silver); }
 .chest-tile.bronze { border-color: #53341c; } .chest-tile.bronze b { color: var(--bronze); }
 .chest-tile.avg { justify-content: center; }
-.hist-bars { position: relative; display: flex; align-items: flex-end; gap: 4px; height: 110px; padding: 0 2px; border-bottom: 2px solid var(--line);
+.hist-bars { position: relative; display: flex; align-items: flex-end; gap: 4px; height: 150px; padding: 0 2px; border-bottom: 2px solid var(--line);
   background: repeating-linear-gradient(to top, transparent 0 27px, rgba(255, 255, 255, 0.04) 27px 28px); }
 .bar { flex: 1; height: 100%; display: flex; align-items: flex-end; }
-.bar i { display: block; width: 100%; border-radius: 2px 2px 0 0; transition: height 0.3s steps(6);
-  background-image: repeating-linear-gradient(to top, rgba(0, 0, 0, 0.18) 0 2px, transparent 2px 8px); box-shadow: inset 2px 2px 0 rgba(255, 255, 255, 0.25), inset -2px 0 0 rgba(0, 0, 0, 0.25); }
+.bar i { position: relative; display: flex; justify-content: center; align-items: flex-start; width: 100%; border-radius: 2px 2px 0 0; transition: height 0.3s steps(6);
+  box-shadow: inset 2px 2px 0 rgba(255, 255, 255, 0.25), inset -2px 0 0 rgba(0, 0, 0, 0.25); }
 .bar.bronze i { background-color: var(--bronze); }
 .bar.silver i { background-color: var(--silver); }
 .bar.gold i { background-color: var(--gold); }
@@ -147,3 +147,6 @@ button.primary:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 #6
 .alert { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-radius: 4px; background: #3a1718; border: 2px solid #7a2c2e; color: #ffd0d0; font-size: 14px; }
 .alert button { flex-shrink: 0; }
 .mode { align-self: center; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; padding: 5px 10px; border-radius: 4px; border: 2px solid #5a4714; color: var(--gold); }
+.bar em { font-style: normal; font-size: 11px; font-weight: 700; color: #17140a; padding-top: 3px; white-space: nowrap; }
+.bar em.above { position: absolute; bottom: 100%; padding: 0 0 2px; color: var(--text); }
+.chest-tile { padding: 10px 4px; }
