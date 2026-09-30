@@ -16,7 +16,7 @@ export const CardView = ({ card, state = 'unseen', small, title, onClick, onCont
     <button
       type="button"
       title={title}
-      className={`card ${colorOf(card)} ${state} ${small ? 'small' : ''}`}
+      className={`card ${colorOf(card)} is-${state} ${small ? "small" : ""}`}
       onClick={onClick}
       onContextMenu={e => {
         if (!onContextMenu) return;

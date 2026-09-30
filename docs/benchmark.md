@@ -26,3 +26,20 @@ Rows 3 and 4 used 200 rollouts per option in the early game; the app uses 400. R
 
 - Learn a value function offline (self-play) to replace the heuristic in rollouts.
 - Push the exact threshold higher using colour symmetry (the three colours are interchangeable).
+
+## Goal comparison (2026-09-30)
+
+400 games per strategy, same decks (seed 12345 + game number), 200 rollouts per option.
+`node scripts/bench.ts 100 <player> <first game>` in shards, merged with `node scripts/bench-report.ts`.
+
+| Strategy | Avg | Gold | Silver or better | Bronze |
+|---|---|---|---|---|
+| Highest average score | 322.0 | 8.5% ± 1.4% | 70.8% ± 2.3% | 29.3% |
+| Gold only | 312.3 | 9.3% ± 1.4% | 62.5% ± 2.4% | 37.5% |
+| Silver only | 316.4 | 6.5% ± 1.2% | 73.3% ± 2.2% | 26.7% |
+| **Gold first, silver fallback 3:1 (default)** | 317.9 | 9.0% ± 1.4% | **75.3% ± 2.2%** | **24.8%** |
+| Gold first, silver fallback 10:1 | 313.7 | 10.3% ± 1.5% | 68.0% ± 2.3% | 32.0% |
+
+"Gold first, silver fallback" maximises 3 × P(gold) + P(silver or better). At 3:1 it keeps the gold
+rate of "gold only" (within noise) and gets the best silver-or-better rate of all strategies,
+so it is the default. Pushing harder for gold (10:1) gains little gold and loses 7 points of silver.

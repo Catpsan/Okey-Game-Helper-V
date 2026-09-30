@@ -37,7 +37,8 @@ const explainAction = (ranked: RankedAction[], hand: CardSet, unseen: CardSet, s
   }
   const kept = hand & ~bit(a.card);
   const nowBest = bestComboIn(hand);
-  const target = oneAway(kept, unseen)[0];
+  // When holding a combo, point at a better one the kept cards are chasing.
+  const target = oneAway(kept, unseen).find(d => !nowBest || d.combo.score > nowBest.score);
   const chase = target
     ? ` Keeps ${target.held.map(cardName).join(' + ')} for ${describeCombo(target.combo)} (${target.combo.score}), which needs ${target.missing.map(cardName).join(' or ')}.`
     : '';

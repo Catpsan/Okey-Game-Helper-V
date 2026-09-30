@@ -25,22 +25,22 @@ Every action in the game is made by the player.
   - With 14 or fewer cards left, the endgame is solved **exactly**.
   - Earlier, each option is tested on hundreds of simulated futures (the same futures for every
     option, so the comparison is fair).
-- **Choose your goal:** highest average score, best chance of gold (400) or best chance of silver (300).
+- **Choose your goal:** gold first with silver as the fallback (default), most points, gold only, or silver only.
 - **Predictions:** exact draw odds, combos that are one card away, chest forecast and a
   final-score histogram.
-- **Screen reading:** share the game window in the browser; the helper reads your cards and
-  tracks draws, plays and discards by itself. See [docs/screen-reading.md](docs/screen-reading.md).
+- **Screen reading:** snip your hand with Win+Shift+S and paste it, or share the game window. The
+  helper learns what your cards look like as you play. See [docs/screen-reading.md](docs/screen-reading.md).
 - All analysis runs in a background worker, so the page never freezes.
 
 ## Results on simulated games
 
-Same 300 random decks for every player (`npm run bench`):
+Same 400 random decks for every player (`npm run bench`); V1 on 300 decks:
 
 | Player | Avg score | Gold | Silver | Bronze |
 |---|---|---|---|---|
 | V1 logic | 267 | 2.0% | 27.0% | 71.0% |
-| V2, highest average score | 321 | 5.7% | 64.7% | 29.7% |
-| V2, best chance of gold | 314 | 7.0% | 57.7% | 35.3% |
+| V2, highest average score | 322 | 8.5% | 62.3% | 29.3% |
+| V2, gold first, silver fallback (default) | 318 | 9.0% | 66.3% | 24.8% |
 
 Details in [docs/benchmark.md](docs/benchmark.md).
 

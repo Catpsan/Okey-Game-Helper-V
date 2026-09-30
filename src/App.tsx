@@ -1,55 +1,56 @@
 import { useEffect, useRef, useState } from 'react';
-import { cardsIn, bit, popcount, HAND_SIZE } from './engine/cards.ts';
+import { cardsIn, bit, popcount, HAND_SIZE, COLORS, NUMBERS, cardOf, cardName } from './engine/cards.ts';
 import type { Card } from './engine/cards.ts';
 import { newGame, draw, discard, play, markGone, restore, needsDraw, unseenOf, isOver } from './engine/game.ts';
 import type { GameState } from './engine/game.ts';
 import type { Goal } from './engine/advisor.ts';
 import type { Action } from './engine/solver.ts';
-import { chestFor } from './engine/scoring.ts';
+import { chestFor, describeCombo } from './engine/scoring.ts';
+import { actionLabel } from './engine/explain.ts';
 import type { TrackerEvent } from './vision/tracker.ts';
 import type { AnalyzeRequest, AnalyzeResponse } from './worker/advisor.worker.ts';
 import { CardView } from './ui/CardView.tsx';
-import { DeckTracker } from './ui/DeckTracker.tsx';
-import { AdvicePanel } from './ui/AdvicePanel.tsx';
-import { ForecastPanel } from './ui/ForecastPanel.tsx';
 import { ScreenReader } from './ui/ScreenReader.tsx';
+import type { ScreenReaderHandle } from './ui/ScreenReader.tsx';
 import { load, save } from './ui/storage.ts';
 
-// Gold first, silver as the fallback: a gold chance is worth GOLD_FIRST_WEIGHT times a silver
-// chance. Chosen by benchmark (docs/benchmark.md).
-export const GOLD_FIRST_WEIGHT = 10;
+// Gold first, silver as the fallback: a gold chance counts GOLD_FIRST_WEIGHT times a silver
+// chance. 3:1 kept the gold rate of "gold only" while beating "silver only" on silver
+// (docs/benchmark.md).
+export const GOLD_FIRST_WEIGHT = 3;
 
-const GOALS: Record<string, Goal> = {
-  'gold-first': { kind: 'chest', weights: { gold: GOLD_FIRST_WEIGHT, silver: 1 } },
-  points: { kind: 'points' },
-  gold: { kind: 'chest', weights: { gold: 1, silver: 0 } },
-  silver: { kind: 'chest', weights: { gold: 0, silver: 1 } },
+const GOALS: Record<string, { label: string; goal: Goal }> = {
+  'gold-first': { label: 'Gold, else silver', goal: { kind: 'chest', weights: { gold: GOLD_FIRST_WEIGHT, silver: 1 } } },
+  points: { label: 'Most points', goal: { kind: 'points' } },
+  gold: { label: 'Gold only', goal: { kind: 'chest', weights: { gold: 1, silver: 0 } } },
+  silver: { label: 'Silver only', goal: { kind: 'chest', weights: { gold: 0, silver: 1 } } },
 };
 
-const STORAGE = 'okey-v2-game';
+const pct = (x: number) => `${Math.round(x * 100)}%`;
 
 export const App = () => {
-  const [history, setHistory] = useState<GameState[]>(() => load(STORAGE, { games: [newGame()] }).games);
+  const [history, setHistory] = useState<GameState[]>(() => load('okey-v2-game', { games: [newGame()] }).games);
   const [goalKey, setGoalKey] = useState<string>(() => load('okey-v2-goal', { goal: 'gold-first' }).goal);
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const worker = useRef<Worker | null>(null);
   const requestId = useRef(0);
+  const reader = useRef<ScreenReaderHandle>(null);
 
   const game = history[history.length - 1];
-  const goal = GOALS[goalKey] ?? GOALS['gold-first'];
+  const goal = (GOALS[goalKey] ?? GOALS['gold-first']).goal;
   const handCards = cardsIn(game.hand);
   const unseen = unseenOf(game);
-  const over = isOver(game);
+  const over = isOver(game) && game.gone !== 0;
 
-  useEffect(() => save(STORAGE, { games: history.slice(-50) }), [history]);
+  useEffect(() => save('okey-v2-game', { games: history.slice(-50) }), [history]);
   useEffect(() => save('okey-v2-goal', { goal: goalKey }), [goalKey]);
 
   useEffect(() => {
     const w = new Worker(new URL('./worker/advisor.worker.ts', import.meta.url), { type: 'module' });
     w.onmessage = (e: MessageEvent<AnalyzeResponse>) => {
-      if (e.data.id !== requestId.current) return; // a newer request is on its way
+      if (e.data.id !== requestId.current) return;
       setAnalysis(e.data);
       setBusy(false);
     };
@@ -63,28 +64,21 @@ export const App = () => {
       setAnalysis(null);
       return;
     }
-    const req: AnalyzeRequest = {
-      id: ++requestId.current,
-      hand: game.hand,
-      gone: game.gone,
-      score: game.score,
-      goal,
-      drawing: needsDraw(game),
-    };
+    const req: AnalyzeRequest = { id: ++requestId.current, hand: game.hand, gone: game.gone, score: game.score, goal, drawing: needsDraw(game) };
     setBusy(true);
     worker.current.postMessage(req);
   }, [game.hand, game.gone, game.score, goalKey]);
 
-  const update = (next: GameState) => {
+  const push = (next: GameState) => {
     if (next !== game) setHistory(h => [...h, next]);
   };
 
   const apply = (a: Action) => {
-    if (a.type === 'play') update(play(game, a.combo));
-    else if (a.type === 'discard') update(discard(game, a.card));
+    if (a.type === 'play') push(play(game, a.combo));
+    else if (a.type === 'discard') push(discard(game, a.card));
   };
 
-  const onScreenEvents = (events: TrackerEvent[], _source: 'live' | 'paste') => {
+  const onScreenEvents = (events: TrackerEvent[]) => {
     setHistory(h => {
       let g = h[h.length - 1];
       for (const ev of events) {
@@ -97,83 +91,133 @@ export const App = () => {
     });
   };
 
-  const onDraw = (card: Card) => {
+  const onGridClick = (card: Card) => {
+    if (game.hand & bit(card)) return push(discard(game, card));
+    if (game.gone & bit(card)) return push(restore(game, card));
     if (popcount(game.hand) >= HAND_SIZE) {
-      setNotice('Your hand already has 5 cards. Play or discard first.');
+      setNotice('Your hand is full. Play or discard first.');
       return;
     }
     setNotice(null);
-    update(draw(game, card));
+    reader.current?.learnDraw(card, game.hand);
+    push(draw(game, card));
   };
 
-  const suggested = analysis?.ranked[0]?.action;
-  const suggestedMask = suggested?.type === 'play' ? suggested.combo.mask : suggested?.type === 'discard' ? bit(suggested.card) : 0;
+  const top = analysis?.ranked[0];
+  const suggestedMask = top?.action.type === 'play' ? top.action.combo.mask : top?.action.type === 'discard' ? bit(top.action.card) : 0;
+  const f = analysis?.forecast;
 
   return (
     <div className="app">
       <header>
-        <h1>Okey Helper <span>V2</span></h1>
-        <div className="row">
-          <label>
-            Play for{' '}
-            <select value={goalKey} onChange={e => setGoalKey(e.target.value)}>
-              <option value="gold-first">Gold first, silver if gold is out of reach</option>
-              <option value="points">Highest average score</option>
-              <option value="gold">Gold only</option>
-              <option value="silver">Silver or better only</option>
-            </select>
-          </label>
-          <button type="button" onClick={() => setHistory(h => (h.length > 1 ? h.slice(0, -1) : h))} disabled={history.length < 2}>
-            Undo
-          </button>
+        <h1>Okey <span>Helper</span></h1>
+        <div className="controls">
+          <select value={goalKey} onChange={e => setGoalKey(e.target.value)} title="What to play for">
+            {Object.entries(GOALS).map(([k, g]) => <option key={k} value={k}>{g.label}</option>)}
+          </select>
+          <button type="button" onClick={() => setHistory(h => (h.length > 1 ? h.slice(0, -1) : h))} disabled={history.length < 2} title="Undo">↶</button>
           <button type="button" onClick={() => { setHistory([newGame()]); setNotice(null); }}>New game</button>
         </div>
       </header>
 
+      <ScreenReader ref={reader} hand={game.hand} gone={game.gone} onEvents={onScreenEvents} />
+
       {notice && <p className="notice" onClick={() => setNotice(null)}>{notice}</p>}
 
-      <main>
-        <div className="col">
-          <ScreenReader hand={game.hand} gone={game.gone} onEvents={onScreenEvents} />
-          <section className="panel">
-            <h2>
-              Your hand <span className="score">Score {game.score} · {chestFor(game.score)} · {popcount(unseen)} in deck</span>
-            </h2>
-            <div className="hand">
-              {Array.from({ length: HAND_SIZE }, (_, i) => {
-                const card = handCards[i] ?? null;
-                return (
-                  <CardView
-                    key={i}
-                    card={card}
-                    state={card !== null && suggestedMask & bit(card) ? 'suggested' : 'hand'}
-                    title="Click to discard"
-                    onClick={card !== null ? () => update(discard(game, card)) : undefined}
-                  />
-                );
-              })}
+      <section className="table">
+        <div className="score">
+          <b>{game.score}</b> <span className={`chest ${chestFor(game.score)}`}>{chestFor(game.score)}</span>
+          <span className="muted">{popcount(unseen)} left in deck</span>
+        </div>
+        <div className="hand">
+          {Array.from({ length: HAND_SIZE }, (_, i) => {
+            const card = handCards[i] ?? null;
+            return (
+              <CardView
+                key={i}
+                card={card}
+                state={card !== null && suggestedMask & bit(card) ? 'suggested' : 'hand'}
+                title={card !== null ? `${cardName(card)}: click to discard` : undefined}
+                onClick={card !== null ? () => push(discard(game, card)) : undefined}
+              />
+            );
+          })}
+        </div>
+
+        <div className="advice">
+          {over ? (
+            <p className="headline">Game over: {game.score} points, {chestFor(game.score)} chest.</p>
+          ) : !analysis ? (
+            <p className="muted">Add the cards you draw, by screen or on the grid below.</p>
+          ) : needsDraw(game) ? (
+            <p className="muted">Draw until you have 5 cards.</p>
+          ) : top ? (
+            <>
+              <p className={`headline ${busy ? 'stale' : ''}`}>{actionLabel(top)}</p>
+              <p className="muted small">{analysis.explanation.replace(/ After it:.*$/, '')}</p>
+              <button type="button" className="primary" onClick={() => apply(top.action)}>Done</button>
+            </>
+          ) : null}
+          {f && !over && (
+            <div className="odds">
+              <span><b>{pct(f.gold)}</b> gold</span>
+              <span><b>{pct(f.silver)}</b> silver+</span>
+              <span><b>{Math.round(f.expected)}</b> avg</span>
             </div>
-            {over && <p className="headline">Game over: {game.score} points, {chestFor(game.score)} chest.</p>}
-          </section>
-          <AdvicePanel analysis={analysis} busy={busy} onApply={apply} />
+          )}
         </div>
-        <div className="col">
-          <DeckTracker
-            game={game}
-            onDraw={onDraw}
-            onMarkGone={c => update(markGone(game, c))}
-            onRestore={c => update(restore(game, c))}
-          />
-          <ForecastPanel analysis={analysis} />
-          <section className="panel">
-            <h2>Log</h2>
-            <ol className="log">
-              {game.log.slice(-12).reverse().map((l, i) => <li key={i}>{l}</li>)}
-            </ol>
-          </section>
-        </div>
-      </main>
-      <footer>Read-only helper: it never sends input to the game, reads its memory or touches network traffic.</footer>
+      </section>
+
+      <section className="grid" aria-label="All 24 cards">
+        {COLORS.map(color => (
+          <div className="grid-row" key={color}>
+            {NUMBERS.map(n => {
+              const card = cardOf(color, n);
+              const state = game.hand & bit(card) ? 'hand' : game.gone & bit(card) ? 'gone' : 'unseen';
+              return (
+                <CardView
+                  key={card}
+                  card={card}
+                  small
+                  state={state}
+                  title={`${cardName(card)}: ${state === 'unseen' ? 'click when drawn, right-click if gone' : state === 'hand' ? 'click to discard' : 'click to put back'}`}
+                  onClick={() => onGridClick(card)}
+                  onContextMenu={() => state === 'unseen' && push(markGone(game, card))}
+                />
+              );
+            })}
+          </div>
+        ))}
+      </section>
+
+      {analysis && (
+        <details className="details">
+          <summary>Details</summary>
+          {analysis.ranked.length > 0 && (
+            <table>
+              <thead><tr><th>Option</th><th>Gold</th><th>Silver+</th><th>Avg</th></tr></thead>
+              <tbody>
+                {analysis.ranked.slice(0, 6).map((r, i) => (
+                  <tr key={i} className={i === 0 ? 'best' : ''}>
+                    <td>{actionLabel(r)}</td><td>{pct(r.gold)}</td><td>{pct(r.silver)}</td><td>{Math.round(r.expectedScore)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {analysis.oneAway.length > 0 && (
+            <p className="small">
+              <span className="muted">One card away: </span>
+              {analysis.oneAway.slice(0, 4).map(d => `${describeCombo(d.combo)} (${d.combo.score}) needs ${d.missing.map(cardName).join('/')}`).join(' · ')}
+            </p>
+          )}
+          <p className="muted small">
+            {analysis.ranked[0]?.exact || f?.exact ? 'Exact calculation.' : 'Estimated from simulated games.'} {game.log.slice(-3).reverse().join(' · ')}
+          </p>
+        </details>
+      )}
+
+      <footer>Only reads the picture of the game. Never clicks, types or reads game memory.</footer>
     </div>
   );
 };

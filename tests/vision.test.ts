@@ -119,3 +119,44 @@ describe('automatic card detection', () => {
     expect(events.map(e => e.type)).toEqual(['play', 'discard', 'draw']);
   });
 });
+
+import { CardMemory } from '../src/vision/learn.ts';
+
+// Cards whose art is NOT the default colours: purple-ish "red", teal "blue", orange "yellow",
+// white numbers on a coloured card with a border and an emblem. The learned reader must cope.
+const ART = { red: [150, 40, 90], blue: [20, 120, 130], yellow: [220, 130, 20] } as const;
+const artCard = (color: keyof typeof ART, pattern: string[] | null, shift = 0): Pixels => {
+  const width = 44, height = 64;
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const i = (y * width + x) * 4;
+    let c: readonly number[];
+    if (pattern === null) c = [40, 36, 30]; // empty slot: dark wood
+    else if (x < 2 || y < 2 || x >= width - 2 || y >= height - 2) c = [200, 170, 80]; // gold border
+    else if (x > 32 && y > 50) c = [240, 240, 240]; // emblem
+    else {
+      const on = pattern[Math.floor((y - 2 - shift) / 10)]?.[Math.floor((x - 2) / 10)] === '#';
+      c = on ? [250, 250, 250] : ART[color];
+    }
+    data[i] = c[0]; data[i + 1] = c[1]; data[i + 2] = c[2]; data[i + 3] = 255;
+  }
+  return { data, width, height };
+};
+
+describe('learned card reader', () => {
+  const TWO = ['###.', '...#', '..#.', '.#..', '#...', '####'];
+  it('reads a card it has seen before, and new colour/number combinations', () => {
+    const m = new CardMemory();
+    m.learn(artCard('red', ONE), cardOf('red', 1));
+    m.learn(artCard('blue', SEVEN), cardOf('blue', 7));
+    m.learn(artCard('yellow', TWO), cardOf('yellow', 2));
+    m.learn(artCard('red', null), 'empty');
+    // Same card again, slightly shifted.
+    expect(m.read(artCard('red', ONE, 1)).card).toBe(cardOf('red', 1));
+    // Never seen: blue 1, yellow 7, red 2.
+    expect(m.read(artCard('blue', ONE)).card).toBe(cardOf('blue', 1));
+    expect(m.read(artCard('yellow', SEVEN)).card).toBe(cardOf('yellow', 7));
+    expect(m.read(artCard('red', TWO)).card).toBe(cardOf('red', 2));
+    expect(m.read(artCard('blue', null)).empty).toBe(true);
+  });
+});
