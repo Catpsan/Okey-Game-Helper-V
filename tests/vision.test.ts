@@ -189,3 +189,44 @@ describe('coloured card faces', () => {
     expect(readSlot(solid(ONE, 'yellow'), book).card).toBe(cardOf('yellow', 1));
   });
 });
+
+import { fileURLToPath } from 'node:url';
+import { readPng } from './png.ts';
+import { GAME_GLYPHS } from '../src/vision/gameGlyphs.ts';
+
+/** Nearest-neighbour resize, to check other window / screen scales. */
+const resize = (px: Pixels, k: number): Pixels => {
+  const width = Math.round(px.width * k), height = Math.round(px.height * k);
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const s = (Math.min(px.height - 1, Math.floor(y / k)) * px.width + Math.min(px.width - 1, Math.floor(x / k))) * 4;
+    data.set(px.data.subarray(s, s + 4), (y * width + x) * 4);
+  }
+  return { data, width, height };
+};
+
+/** The Okey window placed on a bigger dark desktop, as when sharing the whole screen. */
+const onDesktop = (px: Pixels): Pixels => {
+  const width = px.width * 3, height = px.height * 2;
+  const data = new Uint8ClampedArray(width * height * 4).fill(40);
+  for (let y = 0; y < px.height; y++) data.set(px.data.subarray(y * px.width * 4, (y + 1) * px.width * 4), ((y + 200) * width + 400) * 4);
+  return { data, width, height };
+};
+
+describe('real Metin 2 screenshot', () => {
+  const start = readPng(new URL('./fixtures/okey-start.png', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+  const expected = [cardOf('yellow', 6), cardOf('blue', 7), cardOf('yellow', 1), cardOf('red', 5), cardOf('yellow', 2)];
+  const read = (px: Pixels) => detectCards(px, GAME_GLYPHS).map(f => f.reading.card);
+
+  it('reads the five starting cards (coloured cards, black numbers) and ignores the face-down field', () => {
+    expect(read(start)).toEqual(expected);
+  });
+
+  it('reads them at other sizes and inside a full-screen capture', () => {
+    expect(read(resize(start, 1.5))).toEqual(expected);
+    expect(read(resize(start, 2))).toEqual(expected);
+    expect(read(resize(start, 0.8))).toEqual(expected);
+    expect(read(resize(start, 0.7))).toEqual(expected);
+    expect(read(onDesktop(start))).toEqual(expected);
+  });
+});

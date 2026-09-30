@@ -37,9 +37,22 @@ With **Find cards automatically** on (the default) there is nothing to calibrate
 
 Green chips/boxes are confident readings, orange ones are not.
 
+In Metin 2 the cards are coloured (red, blue, yellow) with a black serif number, and the three
+field slots show face-down cards at the start. Strategy 2 finds the coloured cards, the black number
+inside each is read, and face-down cards are ignored. `tests/fixtures/okey-start.png` is a real
+starting screen and is part of the tests (also scaled 70%–200% and inside a full-screen capture).
+
+## Big screens
+
+Pictures wider than 1920 px are first scaled down to find the cards; if that fails they are
+searched tile by tile at full size. Once the cards are found the helper zooms on the Okey window
+and reads only that part at full resolution (the preview shows the zoomed window). If the cards
+can't be read for about two seconds (window moved or covered), it searches the whole picture again.
+
 ## Teaching numbers
 
-The built-in digit shapes come from common fonts and may not match the game's font. If a number
+Numbers 1, 2, 5, 6 and 7 are built in from a real game screenshot. 3, 4 and 8 use common font
+shapes until you teach them, so they may come out orange the first time. If a number
 is misread or shown with "?", pick the right number in that card's **fix** menu. Teach each
 number once, in any colour (the helper learns the shape, not the colour). A second sample helps if
 it still misreads. **Export** (under **Reading settings**) saves what you taught to a file you can import later; it is

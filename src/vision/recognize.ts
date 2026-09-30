@@ -239,14 +239,15 @@ const numberGlyph = (px: Pixels, s: RecognizerSettings) => {
   const bw = main.x1 - main.x0 + 1, bh = main.y1 - main.y0 + 1;
   const solid = kept / (bw * bh) > 0.62 && bw * bh > labels.length * 0.25;
   if (!solid) return { glyph: glyphOf(mask, px.width, px.height), inkFraction, color, colorShare };
-  // A coloured card face: the number is the light, unsaturated area inside the block.
+  // A coloured card face (as in Metin 2: black number on a red, blue or yellow card): the
+  // number is the dark or light, non-coloured area inside the block.
   const inner = new Uint8Array(mask.length);
   const ix0 = main.x0 + Math.round(bw * 0.06), ix1 = main.x1 - Math.round(bw * 0.06);
   const iy0 = main.y0 + Math.round(bh * 0.06), iy1 = main.y1 - Math.round(bh * 0.06);
   for (let y = iy0; y <= iy1; y++) for (let x = ix0; x <= ix1; x++) {
     const i = y * px.width + x;
     const [, sat, val] = hsv(px.data[i * 4], px.data[i * 4 + 1], px.data[i * 4 + 2]);
-    if (!mask[i] && val > 0.55 && sat < 0.35) inner[i] = 1;
+    if (!mask[i] && (val < 0.35 || (val > 0.55 && sat < 0.35))) inner[i] = 1;
   }
   const number = mainShape(inner, px.width, px.height).mask;
   return { glyph: glyphOf(number, px.width, px.height), inkFraction, color, colorShare };

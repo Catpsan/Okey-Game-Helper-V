@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Capture, DEFAULT_LAYOUT, toPixels, slotBoxes } from '../vision/capture.ts';
+import { Capture, DEFAULT_LAYOUT, ANALYSIS_WIDTH, toPixels, slotBoxes } from '../vision/capture.ts';
 import type { Layout, Region } from '../vision/capture.ts';
 import { readSlot, teachGlyph, DEFAULT_RECOGNIZER } from '../vision/recognize.ts';
 import type { GlyphBook, Pixels, RecognizerSettings, SlotReading } from '../vision/recognize.ts';
@@ -32,7 +32,7 @@ interface Seen {
 const STORAGE = 'okey-v2-vision';
 const shortName = (card: number) => cardName(card).replace(/^(\w)\w* /,(_, c: string) => c.toUpperCase());
 const MIN_CONFIDENCE = 0.35;
-const PREVIEW_W = 560;
+const PREVIEW_W = 640;
 
 /** Read every card in a picture: automatic detection, or the manual slots. */
 const analyse = (px: Pixels, config: VisionConfig): Seen[] => {
@@ -49,6 +49,72 @@ const analyse = (px: Pixels, config: VisionConfig): Seen[] => {
     ...(field ? slotBoxes(field, 3, gap, px.width, px.height) : []),
   ];
   return boxes.map(box => ({ box, settings: DEFAULT_RECOGNIZER, reading: readSlot(crop(px, box), book) }));
+};
+
+const confident = (list: Seen[]) => list.some(x => x.reading.card !== null && x.reading.confidence >= MIN_CONFIDENCE);
+
+/**
+ * The part of the source picture around the cards found in `px` (which shows `rect` of it),
+ * roomy enough for the whole Okey window: the hand, the field below it and every hand slot.
+ */
+const focusAround = (list: Seen[], px: Pixels, rect: Box, w: number, h: number): Box | null => {
+  if (list.length === 0) return null;
+  const k = rect.w / px.width;
+  const x0 = Math.min(...list.map(s => s.box.x)), y0 = Math.min(...list.map(s => s.box.y));
+  const x1 = Math.max(...list.map(s => s.box.x + s.box.w)), y1 = Math.max(...list.map(s => s.box.y + s.box.h));
+  const ch = Math.max(...list.map(s => s.box.h)) * k, cw = Math.max(...list.map(s => s.box.w)) * k;
+  const cx = rect.x + ((x0 + x1) / 2) * k;
+  const half = Math.max(((x1 - x0) * k) / 2 + 1.5 * cw, 4.5 * cw);
+  const left = Math.max(0, Math.round(cx - half)), right = Math.min(w, Math.round(cx + half));
+  const top = Math.max(0, Math.round(rect.y + y0 * k - 1.5 * ch)), bottom = Math.min(h, Math.round(rect.y + y1 * k + 3.5 * ch));
+  return right > left && bottom > top ? { x: left, y: top, w: right - left, h: bottom - top } : null;
+};
+
+const union = (a: Box | null, b: Box | null): Box | null => {
+  if (!a || !b) return a ?? b;
+  const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+  return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+};
+
+/** Overlapping full-resolution tiles covering a big picture; the Okey window fits inside one. */
+const tiles = (w: number, h: number): Box[] => {
+  const tw = Math.min(w, ANALYSIS_WIDTH), th = Math.min(h, Math.round((ANALYSIS_WIDTH * 9) / 16));
+  const starts = (size: number, t: number) => {
+    const out: number[] = [];
+    for (let v = 0; v < size - t; v += Math.round(t * 0.6)) out.push(v);
+    out.push(size - t);
+    return out;
+  };
+  return starts(h, th).flatMap(y => starts(w, tw).map(x => ({ x, y, w: tw, h: th })));
+};
+
+/**
+ * Read a picture. With `focus`, only that part is read (at full resolution). Without it, a
+ * big picture (e.g. a 4K screen) is first scaled down to find the cards, and if that fails,
+ * searched tile by tile at full resolution (`tile` picks one tile; by default all are tried).
+ * Once found, the area around the cards is read at full resolution so small cards stay sharp.
+ */
+const readFrame = (src: CanvasImageSource, w: number, h: number, config: VisionConfig, focus: Box | null, tile?: number) => {
+  const rect = config.auto && focus ? focus : { x: 0, y: 0, w, h };
+  const px = toPixels(src, w, h, rect);
+  const list = analyse(px, config);
+  if (!config.auto || focus || w <= ANALYSIS_WIDTH || (confident(list) && px.width === w)) return { px, list, rect };
+  const zoomIn = (found: Seen[], fpx: Pixels, frect: Box) => {
+    const zoom = focusAround(found, fpx, frect, w, h);
+    if (!zoom) return null;
+    const px2 = toPixels(src, w, h, zoom);
+    const list2 = analyse(px2, config);
+    return confident(list2) ? { px: px2, list: list2, rect: zoom } : null;
+  };
+  const first = zoomIn(list, px, rect);
+  if (first) return first;
+  const all = tiles(w, h);
+  for (const t of tile === undefined ? all : [all[tile % all.length]]) {
+    const tpx = toPixels(src, w, h, t);
+    const found = analyse(tpx, config);
+    if (confident(found)) return zoomIn(found, tpx, t) ?? { px: tpx, list: found, rect: t };
+  }
+  return { px, list, rect };
 };
 
 /** The set of visible cards, or null if anything is unreadable or duplicated. */
@@ -68,6 +134,9 @@ export const ScreenReader = ({ hand, gone, onEvents }: Props) => {
   const preview = useRef<HTMLCanvasElement>(null);
   const lastPx = useRef<Pixels | null>(null);
   const pasted = useRef<ImageBitmap | null>(null);
+  const focus = useRef<Box | null>(null);
+  const misses = useRef(0);
+  const searchTile = useRef(0);
   const [active, setActive] = useState(false);
   const [source, setSource] = useState<'none' | 'live' | 'paste'>('none');
   const [message, setMessage] = useState<string | null>(null);
@@ -82,13 +151,14 @@ export const ScreenReader = ({ hand, gone, onEvents }: Props) => {
   useEffect(() => save(STORAGE, config), [config]);
 
   /** Draw the picture and the boxes on the preview canvas. */
-  const draw = useCallback((src: CanvasImageSource, w: number, h: number, list: Seen[], px: Pixels) => {
+  const draw = useCallback((src: CanvasImageSource, rect: Box, list: Seen[], px: Pixels) => {
     const canvas = preview.current;
     if (!canvas) return;
     canvas.width = PREVIEW_W;
-    canvas.height = Math.round((h / w) * PREVIEW_W);
+    canvas.height = Math.round((rect.h / rect.w) * PREVIEW_W);
     const ctx = canvas.getContext('2d')!;
-    ctx.drawImage(src, 0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = rect.w < PREVIEW_W ? false : true;
+    ctx.drawImage(src, rect.x, rect.y, rect.w, rect.h, 0, 0, canvas.width, canvas.height);
     const k = canvas.width / px.width;
     ctx.lineWidth = 2;
     ctx.font = '12px system-ui';
@@ -105,11 +175,10 @@ export const ScreenReader = ({ hand, gone, onEvents }: Props) => {
 
   /** Analyse a pasted screenshot and bring the game in line with it. */
   const readPicture = useCallback((bitmap: ImageBitmap) => {
-    const px = toPixels(bitmap, bitmap.width, bitmap.height);
-    const list = analyse(px, state.current.config);
+    const { px, list, rect } = readFrame(bitmap, bitmap.width, bitmap.height, state.current.config, null);
     lastPx.current = px;
     setSeen(list);
-    draw(bitmap, bitmap.width, bitmap.height, list, px);
+    draw(bitmap, rect, list, px);
     const visible = visibleSet(list);
     const cards = list.filter(s => s.reading.card !== null).length;
     if (visible === null || cards === 0) {
@@ -176,6 +245,7 @@ export const ScreenReader = ({ hand, gone, onEvents }: Props) => {
       });
       capture.current = c;
       tracker.current.reset();
+      focus.current = null;
       setActive(true);
       setSource('live');
     } catch (e) {
@@ -196,12 +266,20 @@ export const ScreenReader = ({ hand, gone, onEvents }: Props) => {
       const c = capture.current;
       if (!c?.ready) return;
       const { videoWidth: w, videoHeight: h } = c.video;
-      const px = toPixels(c.video, w, h);
       const s = state.current;
-      const list = analyse(px, s.config);
+      const { px, list, rect } = readFrame(c.video, w, h, s.config, focus.current, searchTile.current++);
+      // Stay zoomed on the Okey window once the cards are found; search the whole picture
+      // again if they can't be read for a while (window moved or covered).
+      if (s.config.auto && confident(list)) {
+        focus.current = union(focus.current, focusAround(list, px, rect, w, h));
+        misses.current = 0;
+      } else if (++misses.current >= 8) {
+        focus.current = null;
+        misses.current = 0;
+      }
       lastPx.current = px;
       setSeen(list);
-      draw(c.video, w, h, list, px);
+      draw(c.video, rect, list, px);
       if (!s.follow) {
         tracker.current.reset();
         return;

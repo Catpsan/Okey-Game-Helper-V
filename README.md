@@ -82,8 +82,9 @@ Screen sharing needs Chrome, Edge or Firefox, on `localhost` or HTTPS (Vercel is
 2. Press **Share game window** and pick the Metin 2 window, or snip it with
    <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> and press <kbd>Ctrl</kbd>+<kbd>V</kbd> in the helper.
 3. Under the preview, each card it read is shown as a chip (green = sure, orange = not sure).
-   If one is wrong or orange, pick the right number in its **fix** menu. Do this once per number
-   (1–8, in any colour); the helper then knows the game's font. It is saved in the browser.
+   If one is wrong or orange, pick the right number in its **fix** menu. 1, 2, 5, 6 and 7 are
+   built in from the real game; 3, 4 and 8 may need one **fix** the first time you see them (any
+   colour). It is saved in the browser.
 4. Do what the yellow suggestion says, then press **Done** (or let screen reading notice).
    The goal in the top bar defaults to **gold, else silver**.
 
