@@ -11,7 +11,7 @@ import type { AnalyzeRequest, AnalyzeResponse } from './worker/advisor.worker.ts
 import { CardView } from './ui/CardView.tsx';
 import { DeckTracker } from './ui/DeckTracker.tsx';
 import { AdvicePanel, OptionsTable } from './ui/AdvicePanel.tsx';
-import { ForecastPanel } from './ui/ForecastPanel.tsx';
+import { ForecastPanel, MiniForecast } from './ui/ForecastPanel.tsx';
 import { ScreenReader } from './ui/ScreenReader.tsx';
 import { load, save } from './ui/storage.ts';
 
@@ -135,6 +135,7 @@ export const App = () => {
           <span className={`pill ${chest}`}>{chest}</span>
           <span className="muted">{popcount(unseen)} left in deck</span>
         </div>
+        <MiniForecast analysis={analysis} />
         <div className="hand">
           {Array.from({ length: HAND_SIZE }, (_, i) => {
             const card = handCards[i] ?? null;
@@ -164,7 +165,7 @@ export const App = () => {
         />
       </details>
       <details className="panel more">
-        <summary>Odds and other moves</summary>
+        <summary>More odds and other moves</summary>
         <ForecastPanel analysis={analysis} />
         <OptionsTable analysis={analysis} />
       </details>
