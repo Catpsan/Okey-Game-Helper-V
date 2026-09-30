@@ -25,7 +25,7 @@ Every action in the game is made by the player.
   - With 14 or fewer cards left, the endgame is solved **exactly**.
   - Earlier, each option is tested on hundreds of simulated futures (the same futures for every
     option, so the comparison is fair).
-- **Choose your goal:** gold first with silver as the fallback (default), most points, gold only, or silver only.
+- **Optimized play:** goes for gold while it is realistic, otherwise secures silver, re-checked after every card. When silver can no longer be reached, it tells you to start a new game.
 - **Predictions:** exact draw odds, combos that are one card away, chest forecast and a
   final-score histogram.
 - **Screen reading:** snip your hand with Win+Shift+S and paste it, or share the game window. The
@@ -81,7 +81,7 @@ Screen sharing needs Chrome, Edge or Firefox, on `localhost` or HTTPS (Vercel is
 2. Press **Share game window** and pick the Metin 2 window, or snip it with
    <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> and press <kbd>Ctrl</kbd>+<kbd>V</kbd> in the helper.
 3. Check the cards it read (green boxes). If a number is wrong, teach it under that card once.
-4. Follow **Next play**. Leave the goal on **Gold first, silver if gold is out of reach**, or pick another.
+4. Follow the advice on the right (one mode: **Optimized**).
 
 ## Using it
 
