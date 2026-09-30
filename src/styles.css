@@ -146,3 +146,4 @@ button.primary:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 #6
 .plan.silver { color: var(--silver); border-color: #464c57; }
 .alert { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-radius: 4px; background: #3a1718; border: 2px solid #7a2c2e; color: #ffd0d0; font-size: 14px; }
 .alert button { flex-shrink: 0; }
+.mode { align-self: center; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; padding: 5px 10px; border-radius: 4px; border: 2px solid #5a4714; color: var(--gold); }

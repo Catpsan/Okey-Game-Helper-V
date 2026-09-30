@@ -17,45 +17,35 @@ import { arrange, emptySlots } from './ui/handOrder.ts';
 import type { Slots } from './ui/handOrder.ts';
 import { ForecastView } from './ui/ForecastView.tsx';
 import { PixelChest } from './ui/PixelChest.tsx';
-import { goalFor, nextPlan, OPTIMIZED } from './engine/plan.ts';
 
 // Gold first, silver as the fallback: a gold chance counts GOLD_FIRST_WEIGHT times a silver
 // chance. 3:1 kept the gold rate of "gold only" while beating "silver only" on silver
 // (docs/benchmark.md).
 export const GOLD_FIRST_WEIGHT = 3;
 
-const GOALS: Record<string, { label: string; goal: Goal }> = {
-  optimized: { label: 'Optimized', goal: goalFor('gold') },
-  'gold-first': { label: 'Gold, else silver', goal: { kind: 'chest', weights: { gold: GOLD_FIRST_WEIGHT, silver: 1 } } },
-  points: { label: 'Most points', goal: { kind: 'points' } },
-};
+// The one mode, "Optimized": plays for gold while it is realistic, otherwise secures silver,
+// re-checked after every card (maximises 3 x P(gold) + P(silver or better)).
+const GOAL: Goal = { kind: 'chest', weights: { gold: GOLD_FIRST_WEIGHT, silver: 1 } };
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 
 export const App = () => {
   const [history, setHistory] = useState<GameState[]>(() => load('okey-v2-game', { games: [newGame()] }).games);
-  const [goalKey, setGoalKey] = useState<string>(() => {
-    const saved = load('okey-v2-goal', { goal: 'gold-first' }).goal;
-    return saved in GOALS ? saved : 'gold-first';
-  });
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const worker = useRef<Worker | null>(null);
   const requestId = useRef(0);
   const reader = useRef<ScreenReaderHandle>(null);
-  const onAnalysis = useRef<(a: AnalyzeResponse) => void>(() => {});
 
   const game = history[history.length - 1];
-  const optimized = goalKey === 'optimized';
-  const goal = optimized ? goalFor(game.plan ?? 'gold') : (GOALS[goalKey] ?? GOALS['gold-first']).goal;
+  const goal = GOAL;
   const [order, setOrder] = useState<Slots>(() => load('okey-v2-order', { slots: emptySlots() }).slots);
   const handSlots = arrange(order, game.hand);
   const unseen = unseenOf(game);
   const over = isOver(game) && game.gone !== 0;
 
   useEffect(() => save('okey-v2-game', { games: history.slice(-50) }), [history]);
-  useEffect(() => save('okey-v2-goal', { goal: goalKey }), [goalKey]);
   // Pin each card to its slot once it is in hand, so later draws and discards don't move it.
   useEffect(() => setOrder(o => arrange(o, game.hand)), [game.hand]);
   useEffect(() => save('okey-v2-order', { slots: order }), [order]);
@@ -64,7 +54,6 @@ export const App = () => {
     const w = new Worker(new URL('./worker/advisor.worker.ts', import.meta.url), { type: 'module' });
     w.onmessage = (e: MessageEvent<AnalyzeResponse>) => {
       if (e.data.id !== requestId.current) return;
-      onAnalysis.current(e.data);
       setAnalysis(e.data);
       setBusy(false);
     };
@@ -81,15 +70,8 @@ export const App = () => {
     const req: AnalyzeRequest = { id: ++requestId.current, hand: game.hand, gone: game.gone, score: game.score, goal, drawing: needsDraw(game) };
     setBusy(true);
     worker.current.postMessage(req);
-  }, [game.hand, game.gone, game.score, goalKey, game.plan]);
+  }, [game.hand, game.gone, game.score]);
 
-  // Optimized: on the first move of a game, check the gold chance and fix this game's plan.
-  onAnalysis.current = a => {
-    const top = a.ranked[0];
-    if (!optimized || game.plan || !top || game.gone !== 0 || popcount(game.hand) < HAND_SIZE) return;
-    const plan = nextPlan('gold', 0, top.gold, OPTIMIZED);
-    setHistory(h => [...h.slice(0, -1), { ...h[h.length - 1], plan }]);
-  };
 
   const push = (next: GameState) => {
     if (next !== game) setHistory(h => [...h, next]);
@@ -134,9 +116,7 @@ export const App = () => {
       <header>
         <h1><PixelChest tier="gold" size={30} /> Okey <span>Helper</span></h1>
         <div className="controls">
-          <select value={goalKey} onChange={e => setGoalKey(e.target.value)} title="What to play for">
-            {Object.entries(GOALS).map(([k, g]) => <option key={k} value={k}>{g.label}</option>)}
-          </select>
+          <span className="mode" title="Plays for gold while it is realistic, otherwise secures silver. Re-checked after every card.">Optimized</span>
           <button type="button" onClick={() => setHistory(h => (h.length > 1 ? h.slice(0, -1) : h))} disabled={history.length < 2} title="Undo">↶</button>
           <button type="button" onClick={() => { setHistory([newGame()]); setOrder(emptySlots()); setNotice(null); }}>New game</button>
         </div>
@@ -152,7 +132,6 @@ export const App = () => {
       <section className="table">
         <div className="score">
           <b>{game.score}</b> <span className={`chest ${chestFor(game.score)}`}>{chestFor(game.score)}</span>
-          {optimized && game.plan && <span className={`plan ${game.plan}`} title="Optimized: decided on the first move from the gold chance">going for {game.plan}</span>}
           <span className="muted">{popcount(unseen)} left in deck</span>
         </div>
         {analysis?.silverOut && !over && game.score < 300 && (

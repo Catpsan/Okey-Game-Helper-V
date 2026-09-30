@@ -63,6 +63,8 @@ At 100 games the gaps between strategies are within noise (± about 3% gold, ± 
 | Optimized, first 3 moves, under 10% | 320.5 | 9% | 74% | 26% | 26% | 5.5 |
 | Optimized, under 15% | 320.7 | 9% | 75% | 25% | 25% | 5.6 |
 
+Decision (Alex, 2026-09-30): the app keeps one mode, "Optimized", which is the "Gold, else silver (3:1)" logic re-checked after every card. The first-move-only variant stays in the benchmark for comparison.
+
 Takeaways: "Gold only" is clearly worse. The others are close. Optimized behaves like
 "Silver only" (most first hands have a gold chance under 10%, so it switches to silver), while
 "Gold, else silver" kept 2 more gold games out of 100 for 1-2 fewer silvers. A bronze game is
