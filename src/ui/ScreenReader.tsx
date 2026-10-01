@@ -7,7 +7,7 @@ import { withDefaults } from '../vision/defaultGlyphs.ts';
 import { CardMemory } from '../vision/learn.ts';
 import type { Label, Sample } from '../vision/learn.ts';
 import { readPicture, readCapture, visibleSet, isSure } from '../vision/reader.ts';
-import { digitShape } from '../vision/okey.ts';
+import { digitShape, plausibleSample } from '../vision/okey.ts';
 import type { DigitBook } from '../vision/okey.ts';
 import type { Slot, SlotSource, Rect } from '../vision/reader.ts';
 import { ScreenTracker, reconcile } from '../vision/tracker.ts';
@@ -43,7 +43,8 @@ const orderOf = (list: Slot[]): (Card | null)[] =>
 
 const SETTINGS = 'okey-v2-screen';
 const MEMORY = 'okey-v2-memory';
-const DIGITS = 'okey-v2-digits';
+// v3: samples learned before 2026-10-01 could hold mislabeled digits (grid clicks), so start clean.
+const DIGITS = 'okey-v3-digits';
 const PREVIEW_W = 640;
 
 export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone, onEvents, onOrder }, ref) => {
@@ -82,7 +83,7 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
     const face = crop(px, slot.box);
     if (state.current.settings.mode === 'okey') {
       const shape = label !== 'empty' ? digitShape(face) : null;
-      if (shape) {
+      if (shape && plausibleSample(shape, (label as number) % 8 + 1)) {
         const n = String((label as number) % 8 + 1);
         digits.current = { ...digits.current, [n]: [...(digits.current[n] ?? []), shape.glyph].slice(-4) };
       }
@@ -243,7 +244,9 @@ export const ScreenReader = forwardRef<ScreenReaderHandle, Props>(({ hand, gone,
   useImperativeHandle(ref, () => ({
     learnDraw: (card, handBefore) => {
       const px = lastPx.current;
-      if (!px || source === 'none') return;
+      // The Okey reader knows the game's digits already; guessing which slot a grid click
+      // belongs to can teach it the wrong number, so it only learns from fixes under the picture.
+      if (!px || source === 'none' || state.current.settings.mode === 'okey') return;
       // The slot showing this card is the first one that isn't empty and isn't already
       // accounted for by a card in hand.
       const slot = lastSlots.current.find(

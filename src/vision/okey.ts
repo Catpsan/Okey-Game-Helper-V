@@ -10,7 +10,7 @@
 
 import { findBlobs, crop } from './detect.ts';
 import type { Box, Blob } from './detect.ts';
-import { glyphOf, similarity } from './recognize.ts';
+import { glyphOf, similarity, GLYPH_W } from './recognize.ts';
 import type { Pixels, SlotReading } from './recognize.ts';
 import { cardOf, COLORS } from '../engine/cards.ts';
 import DIGITS from './okeyDigits.json' with { type: 'json' };
@@ -127,11 +127,28 @@ export const digitShape = (face: Pixels): { glyph: number[]; holes: number } | n
   return { glyph: glyphOf(mask, W, H), holes: countHoles(mask, W, H, Math.max(3, Math.round(W * H * 0.004))) };
 };
 
+/**
+ * 2 and 5 are the easiest pair to mix up (both open, similar size). The upper right tells them
+ * apart: a 2's top curve comes down on the right side, a 5 is empty there (its upright stroke is
+ * on the left). Ink share of rows 3-6, columns 8-11 of the glyph: 2 >= 0.38, 5 <= 0.19 on the
+ * real game font, also on blurry low-resolution shares.
+ */
+export const upperRight = (glyph: number[]): number => {
+  let sum = 0, n = 0;
+  for (let r = 3; r <= 6; r++) for (let c = GLYPH_W - 4; c < GLYPH_W; c++) { sum += glyph[r * GLYPH_W + c]; n++; }
+  return sum / n;
+};
+const looksLike2 = (glyph: number[]) => upperRight(glyph) >= 0.28;
+
 export const matchDigit = (glyph: number[], books: DigitBook[], holes?: number): { number: number | null; score: number; margin: number } => {
   const best = new Map<number, number>();
+  const two = looksLike2(glyph);
   for (const book of books) for (const [n, samples] of Object.entries(book)) {
-    // A digit with the wrong number of loops (e.g. an 8 read as a 6) is heavily penalised.
-    const penalty = holes === undefined || HOLES[Number(n)]?.includes(Math.min(holes, 2)) ? 0 : 0.3;
+    // A digit with the wrong number of loops (e.g. an 8 read as a 6) is heavily penalised,
+    // and so is a 2 that is empty at the upper right or a 5 that isn't.
+    let penalty = holes === undefined || HOLES[Number(n)]?.includes(Math.min(holes, 2)) ? 0 : 0.3;
+    if (n === '2' && !two) penalty += 0.3;
+    if (n === '5' && two) penalty += 0.3;
     for (const s of samples) best.set(Number(n), Math.max(best.get(Number(n)) ?? -1, similarity(glyph, s) - penalty));
   }
   const ranked = [...best.entries()].sort((a, b) => b[1] - a[1]);
@@ -217,4 +234,15 @@ export const findOkeyWindow = (px: Pixels): Box | null => {
     if (!best || score > best.score) best = { box: { x: Math.max(0, box.x), y: Math.max(0, box.y), w: Math.min(box.w, W - Math.max(0, box.x)), h: Math.min(box.h, H - Math.max(0, box.y)) }, score };
   }
   return best?.box ?? null;
+};
+
+/**
+ * Should a corrected sample be remembered as `n`? Only if it has the loops that digit has and
+  * its upper right matches for 2/5, so a mislabeled sample can't teach a 2 as a 5.
+ */
+export const plausibleSample = (shape: { glyph: number[]; holes: number }, n: number): boolean => {
+  if (!HOLES[n]?.includes(Math.min(shape.holes, 2))) return false;
+  if (n === 2 && !looksLike2(shape.glyph)) return false;
+  if (n === 5 && looksLike2(shape.glyph)) return false;
+  return true;
 };

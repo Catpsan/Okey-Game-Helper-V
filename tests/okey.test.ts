@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { PNG } from 'pngjs';
 import { readFileSync } from 'node:fs';
-import { readOkey, findOkeyWindow } from '../src/vision/okey.ts';
+import { readOkey, findOkeyWindow, findCardFaces, digitShape, plausibleSample } from '../src/vision/okey.ts';
+import { crop } from '../src/vision/detect.ts';
 import { readCapture } from '../src/vision/reader.ts';
 import type { Pixels } from '../src/vision/recognize.ts';
 import { cardName } from '../src/engine/cards.ts';
@@ -117,5 +118,33 @@ describe('Okey window inside the whole game screen', () => {
   it('stays locked on the window it found', () => {
     const first = capture(withCards);
     expect(capture(withCards, first.window).cards).toEqual(EXPECTED);
+  });
+});
+
+describe('2 and 5 never swap', () => {
+  const shot = load('start-67152.png');
+  const shapes = () => findCardFaces(shot)[0].map(f => digitShape(crop(shot, f))!);
+  // Hand on the fixture: yellow 6, blue 7, yellow 1, red 5, yellow 2.
+
+  it('reads 2 and 5 right even from a blurry, low-resolution share', () => {
+    for (const k of [0.5, 0.6, 0.7, 0.8]) {
+      const cards = read(resize(resize(shot, k), 1 / k));
+      expect(cards[3]).toBe('red 5');
+      expect(cards[4]).toBe('yellow 2');
+    }
+  });
+
+  it('refuses to learn a 2 as a 5 or a 5 as a 2', () => {
+    const [, , , five, two] = shapes();
+    expect(plausibleSample(two, 5)).toBe(false);
+    expect(plausibleSample(five, 2)).toBe(false);
+    expect(plausibleSample(two, 2)).toBe(true);
+    expect(plausibleSample(five, 5)).toBe(true);
+  });
+
+  it('a wrongly saved sample does not flip the reading', () => {
+    const [, , , five, two] = shapes();
+    const polluted = { '5': [two.glyph], '2': [five.glyph] };
+    expect(readOkey(shot, polluted).filter(c => c.row === 0).map(c => cardName(c.reading.card!))).toEqual(EXPECTED);
   });
 });
