@@ -90,8 +90,12 @@ export const digitShape = (face: Pixels): { glyph: number[]; holes: number } | n
   // The card colour's brightness sets the "dark" threshold (blue cards are much darker than yellow).
   const lums: number[] = [];
   for (let i = 0; i < W * H; i++) lums.push(lum(data, i * 4));
-  const body = [...lums].sort((a, b) => a - b)[Math.floor(lums.length * 0.7)];
-  const threshold = Math.min(70, body * 0.55);
+  const sorted = [...lums].sort((a, b) => a - b);
+  const body = sorted[Math.floor(lums.length * 0.7)];
+  // Halfway between the darkest ink and the card colour, so a blurred or small capture (where
+  // the black number turns grey) still separates; never above 60% of the card's brightness.
+  const ink = sorted[Math.floor(lums.length * 0.03)];
+  const threshold = Math.min(body * 0.6, Math.max(Math.min(70, body * 0.55), (ink + body) / 2));
   const x0 = Math.round(W * 0.14), x1 = Math.round(W * 0.86), y0 = Math.round(H * 0.12), y1 = Math.round(H * 0.88);
   const dark = new Uint8Array(W * H);
   for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (lums[y * W + x] < threshold) dark[y * W + x] = 1;
@@ -140,15 +144,45 @@ export const upperRight = (glyph: number[]): number => {
 };
 const looksLike2 = (glyph: number[]) => upperRight(glyph) >= 0.28;
 
+/** Longest run of filled cells in the given glyph rows, as a fraction of the glyph width. */
+const flatRun = (g: number[], rows: number[]) =>
+  Math.max(...rows.map(r => {
+    let best = 0, cur = 0;
+    for (let x = 0; x < GLYPH_W; x++) {
+      cur = g[r * GLYPH_W + x] > 0.5 ? cur + 1 : 0;
+      best = Math.max(best, cur);
+    }
+    return best / GLYPH_W;
+  }));
+
+/** Mean fill of a block of glyph cells (rows r0..r1, columns c0..c1). */
+const fill = (g: number[], r0: number, r1: number, c0: number, c1: number) => {
+  let s = 0;
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) s += g[r * GLYPH_W + c];
+  return s / ((r1 - r0 + 1) * (c1 - c0 + 1));
+};
+
+/**
+ * Strokes that tell look-alike digits apart in the game's serif font, robust to blur and scale:
+ * a 2 has a flat base and its upper stroke on the right; a 5 has a flat top bar and its upper
+ * stroke on the left; a 6 never has a flat top. True if `n` contradicts the shape.
+ */
+export const contradicts = (n: number, g: number[]): boolean => {
+  const top = flatRun(g, [0, 1, 2]), bottom = flatRun(g, [13, 14, 15]);
+  const left = fill(g, 3, 7, 0, 3), right = fill(g, 3, 7, 8, 11);
+  if (n === 2) return !(bottom >= 0.66 && bottom > top + 0.15) || left > right + 0.15;
+  if (n === 5) return !(top >= 0.6 && top > bottom + 0.1) || right > left + 0.15;
+  if (n === 6) return top >= 0.66;
+  return false;
+};
+
 export const matchDigit = (glyph: number[], books: DigitBook[], holes?: number): { number: number | null; score: number; margin: number } => {
   const best = new Map<number, number>();
-  const two = looksLike2(glyph);
   for (const book of books) for (const [n, samples] of Object.entries(book)) {
-    // A digit with the wrong number of loops (e.g. an 8 read as a 6) is heavily penalised,
-    // and so is a 2 that is empty at the upper right or a 5 that isn't.
-    let penalty = holes === undefined || HOLES[Number(n)]?.includes(Math.min(holes, 2)) ? 0 : 0.3;
-    if (n === '2' && !two) penalty += 0.3;
-    if (n === '5' && two) penalty += 0.3;
+    // A digit with the wrong number of loops (e.g. an 8 read as a 6), or whose strokes don't fit
+    // (a 2 read as a 5), is heavily penalised, whatever the samples say, even learned ones.
+    const wrongLoops = holes !== undefined && !HOLES[Number(n)]?.includes(Math.min(holes, 2));
+    const penalty = (wrongLoops ? 0.3 : 0) + (contradicts(Number(n), glyph) ? 0.35 : 0);
     for (const s of samples) best.set(Number(n), Math.max(best.get(Number(n)) ?? -1, similarity(glyph, s) - penalty));
   }
   const ranked = [...best.entries()].sort((a, b) => b[1] - a[1]);
@@ -244,5 +278,6 @@ export const plausibleSample = (shape: { glyph: number[]; holes: number }, n: nu
   if (!HOLES[n]?.includes(Math.min(shape.holes, 2))) return false;
   if (n === 2 && !looksLike2(shape.glyph)) return false;
   if (n === 5 && looksLike2(shape.glyph)) return false;
+  if (contradicts(n, shape.glyph)) return false;
   return true;
 };

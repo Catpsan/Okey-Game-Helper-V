@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PNG } from 'pngjs';
 import { readFileSync } from 'node:fs';
-import { readOkey, findOkeyWindow, findCardFaces, digitShape, plausibleSample } from '../src/vision/okey.ts';
+import { readOkey, findOkeyWindow, findCardFaces, digitShape, plausibleSample, contradicts } from '../src/vision/okey.ts';
 import { crop } from '../src/vision/detect.ts';
 import { readCapture } from '../src/vision/reader.ts';
 import type { Pixels } from '../src/vision/recognize.ts';
@@ -146,5 +146,37 @@ describe('2 and 5 never swap', () => {
     const [, , , five, two] = shapes();
     const polluted = { '5': [two.glyph], '2': [five.glyph] };
     expect(readOkey(shot, polluted).filter(c => c.row === 0).map(c => cardName(c.reading.card!))).toEqual(EXPECTED);
+  });
+});
+
+/** 3x3 box blur, like a soft or compressed screen share. */
+const blur = (px: Pixels): Pixels => {
+  const { width: W, height: H } = px;
+  const data = new Uint8ClampedArray(px.data);
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) for (let c = 0; c < 3; c++) {
+    let s = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) s += px.data[((y + dy) * W + x + dx) * 4 + c];
+    data[(y * W + x) * 4 + c] = s / 9;
+  }
+  return { ...px, data };
+};
+
+describe('look-alike digits (5 and 2)', () => {
+  const shot = load('start-67152.png');
+
+  it.each([0.95, 1, 1.1, 1.25, 1.5, 2])('reads 5 and 2 correctly on a blurred capture at x%s', k => {
+    expect(read(blur(resize(shot, k)))).toEqual(EXPECTED);
+  });
+
+  it('a wrong correction (the 2 taught as a 5) cannot turn the 2 into a 5', () => {
+    const faces = findCardFaces(shot)[0];
+    const two = digitShape(crop(shot, faces[4]))!.glyph;
+    const five = digitShape(crop(shot, faces[3]))!.glyph;
+    expect(contradicts(5, two)).toBe(true);
+    expect(contradicts(2, five)).toBe(true);
+    expect(contradicts(2, two)).toBe(false);
+    expect(contradicts(5, five)).toBe(false);
+    const poisoned = { 5: [two, two, two], 2: [five, five] };
+    expect(readOkey(shot, poisoned).filter(c => c.row === 0).map(c => (c.reading.card === null ? '?' : cardName(c.reading.card)))).toEqual(EXPECTED);
   });
 });
